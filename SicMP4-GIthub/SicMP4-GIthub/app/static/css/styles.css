@@ -1,0 +1,184 @@
+:root {
+    color-scheme: dark;
+}
+
+html, body {
+    background-color: #000000;
+    color: #ffffff;
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.font-mono-num {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Hero Section with User's Sunset Eclipse Photo behind Search Bar */
+.eclipse-hero-stage {
+    position: relative;
+    overflow: hidden;
+    background-color: #000000;
+}
+
+.eclipse-hero-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 58%;
+    filter: contrast(1.06) saturate(1.14);
+    transform: scale(1.01);
+}
+
+.eclipse-hero-overlay {
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(90deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.38) 48%, rgba(0, 0, 0, 0.52) 100%),
+        linear-gradient(180deg, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0.18) 40%, rgba(0, 0, 0, 0.85) 88%, #000000 100%);
+}
+
+/* Screenshot-2 Eclipse Ring + Crescent Mark (Scaled crisp version) */
+.eclipse-ring-logo {
+    background: linear-gradient(45deg, #dc2626 0%, #f97316 50%, #fcd34d 100%);
+    box-shadow:
+        0 0 42px rgba(245, 158, 11, 0.42),
+        0 0 85px rgba(234, 88, 12, 0.22);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease;
+}
+
+.eclipse-ring-logo:hover {
+    transform: scale(1.04);
+    box-shadow:
+        0 0 54px rgba(251, 191, 36, 0.58),
+        0 0 100px rgba(234, 88, 12, 0.32);
+}
+
+/* Rockstar Pill Search Bar over Sunset Eclipse */
+.rockstar-search-shell {
+    background: rgba(8, 6, 5, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    transition: border-color 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.rockstar-search-shell:focus-within {
+    background: rgba(10, 7, 5, 0.88);
+    border-color: #fbbf24;
+    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.22), 0 0 34px -6px rgba(234, 88, 12, 0.55);
+}
+
+/* Obsidian Glass Panels & Modals */
+.glass-card {
+    background: rgba(12, 10, 9, 0.95);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    box-shadow: 0 28px 70px -15px rgba(0, 0, 0, 0.95);
+}
+
+/* 4 Vertical Rockstar Poster Cards fitted into 100vh */
+.eclipse-poster-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    background-color: #070504;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.35s ease, box-shadow 0.4s ease;
+}
+
+.eclipse-poster-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(251, 191, 36, 0.6);
+    box-shadow: 0 22px 48px -16px rgba(234, 88, 12, 0.35), 0 14px 32px -12px rgba(0, 0, 0, 0.95);
+}
+
+.eclipse-poster-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 14%;
+    transition: transform 0.75s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.eclipse-poster-card:hover .eclipse-poster-bg {
+    transform: scale(1.06);
+}
+
+/* High-contrast multi-stop dark scrim keeping top eclipse art visible and bottom white text crisp */
+.eclipse-poster-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        180deg,
+        rgba(0, 0, 0, 0.36) 0%,
+        rgba(0, 0, 0, 0.02) 16%,
+        rgba(4, 3, 3, 0.30) 36%,
+        rgba(4, 3, 3, 0.88) 52%,
+        rgba(3, 2, 2, 0.97) 70%,
+        rgba(2, 2, 2, 0.99) 100%
+    );
+}
+
+.poster-text-shadow {
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.95);
+}
+
+@keyframes coronaShimmer {
+    0% {
+        background-position: -200% 0;
+    }
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+.progress-shimmer {
+    background: linear-gradient(
+        90deg,
+        #b91c1c 0%,
+        #ea580c 30%,
+        #f59e0b 55%,
+        #fde047 72%,
+        #ea580c 90%,
+        #b91c1c 100%
+    );
+    background-size: 200% 100%;
+    animation: coronaShimmer 2.2s linear infinite;
+    box-shadow: 0 0 16px rgba(245, 158, 11, 0.5);
+}
+
+.format-tab-active {
+    background: linear-gradient(135deg, rgba(234, 88, 12, 0.28), rgba(245, 158, 11, 0.12));
+    border-color: rgba(251, 191, 36, 0.85) !important;
+    box-shadow: 0 0 26px -6px rgba(234, 88, 12, 0.5);
+}
+
+.quality-tile-active {
+    background: rgba(234, 88, 12, 0.22);
+    border-color: #fbbf24 !important;
+    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.45);
+}
+
+/* Custom subtle scrollbar inside modals */
+::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+}
+
+::-webkit-scrollbar-track {
+    background: #050404;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #292320;
+    border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #443830;
+}

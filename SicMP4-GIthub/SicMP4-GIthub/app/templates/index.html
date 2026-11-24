@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="pl" class="dark">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SicMP4 | Video &amp; Audio Downloader</title>
+    <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg?v=6" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/static/img/favicon.png?v=6" />
+    <link rel="shortcut icon" href="/favicon.ico?v=6" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png?v=6" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/css/styles.css?v=5" />
+</head>
+<body class="min-h-screen lg:h-screen lg:overflow-hidden bg-black text-white antialiased selection:bg-amber-500/30 selection:text-amber-200 flex flex-col">
+
+    <!-- Compact Top Bar (48px) -->
+    <header class="h-12 shrink-0 border-b border-white/10 bg-black/90 backdrop-blur-xl z-30">
+        <div class="max-w-[1440px] mx-auto px-5 sm:px-8 h-full flex items-center justify-between gap-4">
+            <div class="flex items-center gap-2.5 select-none">
+                <div class="w-7 h-7 rounded-full bg-gradient-to-tr from-red-600 via-orange-500 to-amber-300 p-[1.5px] shadow-[0_0_14px_rgba(245,158,11,0.45)]">
+                    <div class="w-full h-full rounded-full bg-black flex items-center justify-center">
+                        <span class="w-3 h-3 rounded-full bg-black shadow-[2px_-1px_0_1.5px_#fbbf24]"></span>
+                    </div>
+                </div>
+                <span class="font-extrabold tracking-tight text-base text-white">SicMP4</span>
+            </div>
+
+            <div class="flex items-center gap-2.5 text-xs">
+                <!-- Active Studio Re-open Pill when tasks or media exist -->
+                <button id="openStudioPillBtn" type="button"
+                    class="hidden items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/45 text-amber-200 font-semibold transition cursor-pointer">
+                    <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                    <span id="openStudioPillText">Panel pobierania</span>
+                </button>
+
+                <div id="ffmpegBadge" class="flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.05] border border-white/10 text-neutral-300">
+                    <span id="ffmpegDot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                    <span id="ffmpegText" class="hidden md:inline">Sprawdzanie FFmpeg...</span>
+                </div>
+
+                <button id="lanCopyBtn" type="button" title="Skopiuj adres sieci lokalnej LAN"
+                    class="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.05] hover:bg-white/10 border border-white/10 text-neutral-200 transition cursor-pointer">
+                    <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                    </svg>
+                    <span id="lanUrlText" class="font-mono-num">LAN</span>
+                </button>
+
+                <button id="openCookiesBtn" type="button" title="Autoryzacja cookies.txt dla YouTube na serwerach chmurowych"
+                    class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.06] hover:bg-white/15 border border-white/15 text-neutral-200 font-semibold transition cursor-pointer">
+                    <span id="cookiesStatusDot" class="w-2 h-2 rounded-full bg-neutral-500"></span>
+                    <span>Cookies</span>
+                </button>
+
+                <button id="openLibraryBtn" type="button"
+                    class="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-white/[0.08] hover:bg-white hover:text-black border border-white/15 text-white font-semibold transition cursor-pointer">
+                    <span>Pobrane</span>
+                    <span id="filesCountBadge" class="font-mono-num text-[11px] px-1.5 rounded-full bg-amber-400 text-black font-bold">0</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- HERO SECTION: Sunset Eclipse Photo Directly Behind Logo + Search Bar -->
+    <section class="eclipse-hero-stage shrink-0 py-5 sm:py-6 lg:py-7">
+        <img
+            src="/static/img/eclipse-hero.jpg"
+            alt="Zaćmienie Słońca – SicMP4"
+            class="eclipse-hero-bg"
+        />
+        <div class="eclipse-hero-overlay"></div>
+
+        <div class="relative z-10 max-w-[1440px] mx-auto px-5 sm:px-8">
+            <div class="flex flex-col lg:flex-row lg:items-center gap-5 lg:gap-10">
+
+                <!-- Left Column: Exact Eclipse Circle + Crescent Logo from Screenshot 2 -->
+                <div class="shrink-0 select-none flex items-center">
+                    <div class="eclipse-ring-logo w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32 rounded-full p-[3.5px]">
+                        <div class="w-full h-full rounded-full bg-black flex items-center justify-center relative overflow-hidden">
+                            <!-- Crisp SVG Crescent identical to Screenshot 2 at any resolution -->
+                            <svg viewBox="0 0 100 100" class="w-[74%] h-[74%]" aria-label="Logo SicMP4">
+                                <defs>
+                                    <linearGradient id="crescentGold" x1="15%" y1="10%" x2="90%" y2="90%">
+                                        <stop offset="0%" stop-color="#fef08a" />
+                                        <stop offset="55%" stop-color="#fbbf24" />
+                                        <stop offset="100%" stop-color="#f59e0b" />
+                                    </linearGradient>
+                                </defs>
+                                <path d="M 38 14 A 38 38 0 1 1 24 78 A 33 33 0 1 0 38 14 Z" fill="url(#crescentGold)" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Breadcrumb, Concise Subtitle, Rockstar Pill Search Bar & Tech Marks -->
+                <div class="flex-1 min-w-0 space-y-2.5">
+                    <div class="flex flex-wrap items-center gap-2 text-xs tracking-wide drop-shadow">
+                        <span class="text-neutral-300 font-medium">Lokalny Studio Konwerter</span>
+                        <span class="text-neutral-500">/</span>
+                        <span class="text-white font-extrabold">SicMP4</span>
+                    </div>
+
+                    <p class="text-sm sm:text-base lg:text-lg text-white/95 max-w-2xl leading-snug font-semibold drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
+                        Pobieraj i konwertuj wideo w jakości do 4K Ultra HD oraz bezstratne audio z ponad 1700+ serwisów bezpośrednio na dysk.
+                    </p>
+
+                    <!-- Pill Search / URL Bar + Rockstar White CTA Pill -->
+                    <form id="analyzeForm" class="pt-0.5 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 max-w-3xl">
+                        <div class="rockstar-search-shell relative flex-1 flex items-center rounded-full pl-4 pr-1.5 py-1">
+                            <svg class="w-4 h-4 text-amber-400 shrink-0 mr-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                            </svg>
+                            <input
+                                id="urlInput"
+                                type="url"
+                                required
+                                autocomplete="off"
+                                placeholder="Wklej link wideo, audio lub playlisty (YouTube, TikTok, Twitch...)"
+                                class="w-full bg-transparent py-2 text-sm text-white placeholder-neutral-300/80 focus:outline-none"
+                            />
+                            <button id="clearUrlBtn" type="button" title="Wyczyść pole"
+                                class="hidden p-1.5 text-neutral-300 hover:text-white rounded-full hover:bg-white/10 transition cursor-pointer">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                            <button id="pasteBtn" type="button" title="Wklej ze schowka"
+                                class="ml-1 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white bg-white/10 hover:bg-white/20 rounded-full border border-white/20 transition shrink-0 cursor-pointer">
+                                Wklej
+                            </button>
+                        </div>
+
+                        <button
+                            id="analyzeBtn"
+                            type="submit"
+                            class="px-7 py-3 rounded-full font-extrabold text-sm text-black bg-white hover:bg-amber-300 active:scale-[0.98] transition flex items-center justify-center gap-2 shrink-0 cursor-pointer shadow-[0_4px_24px_rgba(0,0,0,0.65)] disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                            <svg id="analyzeSpinner" class="hidden w-4 h-4 animate-spin text-black" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                            </svg>
+                            <svg id="analyzePlayIcon" class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z" />
+                            </svg>
+                            <span id="analyzeBtnText">Sprawdź link</span>
+                        </button>
+                    </form>
+
+                    <!-- Technical Spec Marks -->
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10.5px] font-mono-num uppercase tracking-widest text-neutral-300/90 drop-shadow">
+                        <span class="flex items-center gap-1.5 text-white font-semibold">
+                            <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                            4K ULTRA HD
+                        </span>
+                        <span>MP4 • MKV • WEBM</span>
+                        <span>MP3 320 • FLAC • WAV</span>
+                        <span>SILNIK FFMPEG + YT-DLP</span>
+                    </div>
+
+                    <!-- Inline Compact Error Alert -->
+                    <div id="errorAlert" class="hidden mt-2 px-4 py-2.5 rounded-xl bg-red-950/90 border border-red-500/50 text-red-100 text-xs flex flex-wrap items-center justify-between gap-2.5 max-w-3xl">
+                        <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                            <svg class="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <div id="errorAlertText" class="flex-1 break-words"></div>
+                        </div>
+                        <button id="errorCookiesBtn" type="button"
+                            class="hidden px-3 py-1 rounded-full bg-amber-300 hover:bg-white text-black font-extrabold text-[11px] uppercase tracking-wider shrink-0 transition cursor-pointer">
+                            Dodaj cookies.txt
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+    <!-- BOTTOM SECTION: 4 Rockstar Poster Cards Fitted to Remaining 100vh Height -->
+    <main class="flex-1 min-h-0 max-w-[1440px] w-full mx-auto px-5 sm:px-8 pt-2 pb-4 sm:pb-5 flex flex-col">
+        <div class="shrink-0 flex items-end justify-between gap-2 mb-3">
+            <h2 class="text-lg sm:text-xl lg:text-2xl font-extrabold tracking-tight text-white">
+                Poznaj możliwości SicMP4
+            </h2>
+            <p class="hidden sm:block text-[11px] font-mono-num uppercase tracking-widest text-neutral-500">
+                SOLAR ECLIPSE ENGINE // BEZ LIMITÓW
+            </p>
+        </div>
+
+        <div class="flex-1 min-h-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+            <!-- Poster Card 1: Obsługiwane Platformy -->
+            <article class="eclipse-poster-card min-h-[420px] lg:min-h-0 h-full flex flex-col justify-between p-4 xl:p-5">
+                <img src="/static/img/card-platforms.jpg" alt="Obsługiwane Platformy" class="eclipse-poster-bg" />
+                <div class="eclipse-poster-scrim"></div>
+
+                <div class="relative z-10">
+                    <span class="text-[10px] font-bold uppercase tracking-[0.26em] text-amber-200/90 poster-text-shadow">
+                        1700+ SERWISÓW
+                    </span>
+                </div>
+
+                <div class="relative z-10 mt-auto space-y-2.5 poster-text-shadow">
+                    <div>
+                        <h3 class="text-base xl:text-lg font-extrabold text-white tracking-tight leading-tight">
+                            Obsługiwane Platformy
+                        </h3>
+                        <div class="w-8 h-0.5 bg-amber-400 mt-1.5"></div>
+                    </div>
+
+                    <ul class="space-y-1.5 text-[11.5px] xl:text-[12.5px] leading-snug text-white/95">
+                        <li>
+                            <strong class="text-amber-300 font-bold">Wideo &amp; Social Media:</strong> YouTube, TikTok, Instagram (Reels &amp; Stories), Facebook, X (Twitter), Reddit, Pinterest.
+                        </li>
+                        <li>
+                            <strong class="text-amber-300 font-bold">Serwisy VOD &amp; Streaming:</strong> Twitch (VOD &amp; Klipy), CDA.pl, Vimeo, Dailymotion, Rumble, Bitchute.
+                        </li>
+                        <li>
+                            <strong class="text-amber-300 font-bold">Audio &amp; Muzyka:</strong> SoundCloud, Bandcamp, Mixcloud, platformy podcastowe.
+                        </li>
+                        <li>
+                            <strong class="text-amber-300 font-bold">Uniwersalny skaner stron:</strong> Obsługa niemal każdego wideo w odtwarzaczach HTML5.
+                        </li>
+                    </ul>
+
+                    <div class="pt-1">
+                        <button type="button" data-card-action="focus-url"
+                            class="w-full py-2 px-4 rounded-full bg-amber-300 hover:bg-white text-black font-extrabold text-[11px] uppercase tracking-wider transition cursor-pointer">
+                            Wklej dowolny link
+                        </button>
+                    </div>
+                </div>
+            </article>
+
+            <!-- Poster Card 2: Formaty Wideo -->
+            <article class="eclipse-poster-card min-h-[420px] lg:min-h-0 h-full flex flex-col justify-between p-4 xl:p-5">
+                <img src="/static/img/card-video.jpg" alt="Formaty Wideo" class="eclipse-poster-bg" />
+                <div class="eclipse-poster-scrim"></div>
+
+                <div class="relative z-10">
+                    <span class="text-[10px] font-bold uppercase tracking-[0.26em] text-amber-200/90 poster-text-shadow">
+                        ULTRA HD 4K
+                    </span>
+                </div>
+
+                <div class="relative z-10 mt-auto space-y-2.5 poster-text-shadow">
+                    <div>
+                        <h3 class="text-base xl:text-lg font-extrabold text-white tracking-tight leading-tight">
+                            Formaty Wideo
+                        </h3>
+                        <div class="w-8 h-0.5 bg-amber-400 mt-1.5"></div>
+                    </div>
+
+                    <ul class="space-y-1.5 text-[11.5px] xl:text-[12.5px] leading-snug text-white/95">
+                        <li>
+                            <strong class="text-amber-300 font-bold">MP4 (H.264 / AAC):</strong> Maksymalna kompatybilność – odtworzysz na każdym telefonie, telewizorze i w programie do montażu.
+                        </li>
+                        <li>
+                            <strong class="text-amber-300 font-bold">Jakość:</strong> Od 480p i 720p (HD), przez 1080p (Full HD), aż po 2K i 4K Ultra HD.
+                        </li>
+                        <li>
+                            <strong class="text-amber-300 font-bold">MKV / WebM:</strong> Opcja bezstratna z zachowaniem oryginalnych kodeków (VP9 / AV1) i wielu ścieżek dźwiękowych.
+                        </li>
+                    </ul>
+
+                    <div class="pt-1">
+                        <button type="button" data-card-action="preset-mp4"
+                            class="w-full py-2 px-4 rounded-full border border-white/40 bg-black/60 hover:bg-white text-white hover:text-black font-bold text-[11px] uppercase tracking-wider backdrop-blur-md transition cursor-pointer">
+                            Wybierz Wideo 4K / MP4
+                        </button>
+                    </div>
+                </div>
+            </article>
+
+            <!-- Poster Card 3: Formaty Audio -->
+            <article class="eclipse-poster-card min-h-[420px] lg:min-h-0 h-full flex flex-col justify-between p-4 xl:p-5">
+                <img src="/static/img/card-audio.jpg" alt="Formaty Audio" class="eclipse-poster-bg" />
+                <div class="eclipse-poster-scrim"></div>
+
+                <div class="relative z-10">
+                    <span class="text-[10px] font-bold uppercase tracking-[0.26em] text-amber-200/90 poster-text-shadow">
+                        STUDIO HI-FI &amp; ID3
+                    </span>
+                </div>
+
+                <div class="relative z-10 mt-auto space-y-2.5 poster-text-shadow">
+                    <div>
+                        <h3 class="text-base xl:text-lg font-extrabold text-white tracking-tight leading-tight">
+                            Formaty Audio
+                        </h3>
+                        <div class="w-8 h-0.5 bg-amber-400 mt-1.5"></div>
+                    </div>
+
+                    <ul class="space-y-1.5 text-[11.5px] xl:text-[12.5px] leading-snug text-white/95">
+                        <li>
+                            <strong class="text-amber-300 font-bold">MP3 (do 320 kbps):</strong> Krystalicznie czysty dźwięk z automatycznym dodaniem okładki filmu i tagów wykonawcy/tytułu.
+                        </li>
+                        <li>
+                            <strong class="text-amber-300 font-bold">M4A / AAC &amp; WAV / FLAC:</strong> Opcje dla melomanów szukających formatów bezstratnych i najwyższej dynamiki.
+                        </li>
+                    </ul>
+
+                    <div class="pt-1">
+                        <button type="button" data-card-action="preset-audio"
+                            class="w-full py-2 px-4 rounded-full border border-white/40 bg-black/60 hover:bg-white text-white hover:text-black font-bold text-[11px] uppercase tracking-wider backdrop-blur-md transition cursor-pointer">
+                            Wybierz Audio MP3 / FLAC
+                        </button>
+                    </div>
+                </div>
+            </article>
+
+            <!-- Poster Card 4: Funkcje Dodatkowe -->
+            <article class="eclipse-poster-card min-h-[420px] lg:min-h-0 h-full flex flex-col justify-between p-4 xl:p-5">
+                <img src="/static/img/card-features.jpg" alt="Funkcje Dodatkowe" class="eclipse-poster-bg" />
+                <div class="eclipse-poster-scrim"></div>
+
+                <div class="relative z-10">
+                    <span class="text-[10px] font-bold uppercase tracking-[0.26em] text-amber-200/90 poster-text-shadow">
+                        NARZĘDZIA PRO
+                    </span>
+                </div>
+
+                <div class="relative z-10 mt-auto space-y-2.5 poster-text-shadow">
+                    <div>
+                        <h3 class="text-base xl:text-lg font-extrabold text-white tracking-tight leading-tight">
+                            Funkcje Dodatkowe
+                        </h3>
+                        <div class="w-8 h-0.5 bg-amber-400 mt-1.5"></div>
+                    </div>
+
+                    <ul class="space-y-1.5 text-[11.5px] xl:text-[12.5px] leading-snug text-white/95">
+                        <li>
+                            <strong class="text-amber-300 font-bold">Wycinki czasowe:</strong> Pobieraj tylko interesujący Cię fragment (np. od 01:20 do 02:45).
+                        </li>
+                        <li>
+                            <strong class="text-amber-300 font-bold">Napisy:</strong> Opcja pobrania napisów jako osobny plik .srt lub wtopienia ich na stałe w obraz.
+                        </li>
+                        <li>
+                            <strong class="text-amber-300 font-bold">Całe playlisty:</strong> Wklej link do playlisty i pobierz wiele utworów za jednym kliknięciem.
+                        </li>
+                    </ul>
+
+                    <div class="pt-1">
+                        <button type="button" data-card-action="preset-extra"
+                            class="w-full py-2 px-4 rounded-full border border-white/40 bg-black/60 hover:bg-white text-white hover:text-black font-bold text-[11px] uppercase tracking-wider backdrop-blur-md transition cursor-pointer">
+                            Wycinki, Napisy i Playlisty
+                        </button>
+                    </div>
+                </div>
+            </article>
+
+        </div>
+    </main>
+
+    <!-- STUDIO MODAL OVERLAY: Video Preview, Format Picker & Live Progress (Zero Page Scroll!) -->
+    <div id="studioModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6">
+        <div class="glass-card rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-5 sm:p-7 space-y-6 relative">
+            <div class="flex items-center justify-between border-b border-white/10 pb-3.5">
+                <div class="flex items-center gap-2.5">
+                    <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                    <h2 class="text-sm sm:text-base font-extrabold uppercase tracking-wider text-white">
+                        Studio Konwersji SicMP4
+                    </h2>
+                </div>
+                <button id="closeStudioModalBtn" type="button"
+                    class="px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white hover:text-black text-xs font-bold text-white transition cursor-pointer">
+                    Zamknij
+                </button>
+            </div>
+
+            <!-- Loading Skeleton while fetching metadata -->
+            <div id="skeletonCard" class="hidden animate-pulse">
+                <div class="flex flex-col md:flex-row gap-6">
+                    <div class="w-full md:w-72 aspect-video rounded-xl bg-neutral-900 border border-white/10"></div>
+                    <div class="flex-1 space-y-4 py-1">
+                        <div class="h-4 w-28 bg-neutral-800 rounded"></div>
+                        <div class="h-6 w-4/5 bg-neutral-800 rounded"></div>
+                        <div class="h-4 w-1/2 bg-neutral-800 rounded"></div>
+                        <div class="grid grid-cols-3 gap-3 pt-2">
+                            <div class="h-12 bg-neutral-800 rounded-xl"></div>
+                            <div class="h-12 bg-neutral-800 rounded-xl"></div>
+                            <div class="h-12 bg-neutral-800 rounded-xl"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Video Preview & Format Picker -->
+            <div id="mediaCard" class="hidden space-y-5">
+                <div class="flex flex-col md:flex-row gap-5 items-start">
+                    <div class="relative w-full md:w-72 shrink-0 aspect-video rounded-xl overflow-hidden bg-black border border-white/15 shadow-xl">
+                        <img id="mediaThumb" src="" alt="Miniatura" class="w-full h-full object-cover" />
+                        <div class="absolute top-2 left-2 px-2.5 py-0.5 rounded-full bg-black/85 backdrop-blur text-[10px] font-bold uppercase tracking-wider text-amber-300 border border-amber-400/35" id="mediaExtractor">
+                            YouTube
+                        </div>
+                        <div class="absolute bottom-2 right-2 px-2 py-0.5 rounded-md bg-black/90 text-xs font-mono-num font-semibold text-white border border-white/15" id="mediaDuration">
+                            00:00
+                        </div>
+                    </div>
+
+                    <div class="flex-1 min-w-0 space-y-2.5">
+                        <h3 id="mediaTitle" class="text-lg sm:text-xl font-extrabold text-white leading-snug line-clamp-2">
+                            Tytuł materiału wideo
+                        </h3>
+                        <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-neutral-300">
+                            <span class="flex items-center gap-1.5 text-white font-semibold">
+                                <svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                                <span id="mediaAuthor" class="truncate max-w-[240px]">Autor</span>
+                            </span>
+                            <span id="mediaMaxResBadge" class="px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-semibold">
+                                Dostępne HD
+                            </span>
+                            <span id="mediaSubsBadge" class="hidden px-2.5 py-0.5 rounded-full bg-white/10 text-white border border-white/20 text-xs font-medium">
+                                Napisy dostępne
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Format Category Tabs -->
+                <div>
+                    <h4 class="text-[11px] font-bold uppercase tracking-widest text-neutral-400 mb-2.5">
+                        1. Wybierz docelowy kontener / grupę formatów
+                    </h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <button type="button" data-format="mp4"
+                            class="format-tab format-tab-active text-left p-3.5 rounded-xl border border-white/10 bg-white/[0.03] hover:border-amber-400/50 transition cursor-pointer">
+                            <div class="flex items-center justify-between mb-0.5">
+                                <span class="font-bold text-white text-sm">Wideo MP4</span>
+                                <span class="text-[10px] font-mono-num px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">H.264 / AAC</span>
+                            </div>
+                            <p class="text-[11px] text-neutral-400">Maksymalna kompatybilność</p>
+                        </button>
+
+                        <button type="button" data-format="audio"
+                            class="format-tab text-left p-3.5 rounded-xl border border-white/10 bg-white/[0.03] hover:border-amber-400/50 transition cursor-pointer">
+                            <div class="flex items-center justify-between mb-0.5">
+                                <span class="font-bold text-white text-sm">Formaty Audio</span>
+                                <span class="text-[10px] font-mono-num px-2 py-0.5 rounded bg-orange-500/20 text-orange-300">MP3 / FLAC / WAV</span>
+                            </div>
+                            <p class="text-[11px] text-neutral-400">MP3 z ID3 i okładką oraz bezstratne</p>
+                        </button>
+
+                        <button type="button" data-format="lossless_video"
+                            class="format-tab text-left p-3.5 rounded-xl border border-white/10 bg-white/[0.03] hover:border-amber-400/50 transition cursor-pointer">
+                            <div class="flex items-center justify-between mb-0.5">
+                                <span class="font-bold text-white text-sm">MKV / WebM</span>
+                                <span class="text-[10px] font-mono-num px-2 py-0.5 rounded bg-red-500/20 text-red-300">VP9 / AV1</span>
+                            </div>
+                            <p class="text-[11px] text-neutral-400">Bezstratne zachowanie strumieni</p>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quality / Resolution Options -->
+                <div>
+                    <h4 id="qualitySectionLabel" class="text-[11px] font-bold uppercase tracking-widest text-neutral-400 mb-2.5">
+                        2. Wybierz jakość / wariant
+                    </h4>
+                    <div id="qualityGrid" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Extra Options -->
+                <div class="pt-2.5 border-t border-white/10 space-y-3">
+                    <button id="toggleExtraBtn" type="button"
+                        class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-amber-300 hover:text-amber-200 transition cursor-pointer">
+                        <svg id="toggleExtraChevron" class="w-4 h-4 text-amber-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                        <span>3. Funkcje dodatkowe (wycinki czasowe, napisy, cała playlista)</span>
+                    </button>
+
+                    <div id="extraOptionsPanel" class="hidden grid grid-cols-1 md:grid-cols-3 gap-3.5 p-3.5 rounded-xl bg-black/70 border border-white/10">
+                        <div class="space-y-1">
+                            <label class="block text-xs font-semibold text-white">Wycinek czasowy</label>
+                            <div class="flex items-center gap-2">
+                                <input id="clipStartInput" type="text" placeholder="Od np. 01:20"
+                                    class="w-full px-2.5 py-1.5 rounded-lg bg-neutral-900 border border-white/15 text-xs font-mono-num text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400" />
+                                <span class="text-neutral-500 text-xs">–</span>
+                                <input id="clipEndInput" type="text" placeholder="Do np. 02:45"
+                                    class="w-full px-2.5 py-1.5 rounded-lg bg-neutral-900 border border-white/15 text-xs font-mono-num text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400" />
+                            </div>
+                        </div>
+
+                        <div class="space-y-1">
+                            <label for="subtitleModeSelect" class="block text-xs font-semibold text-white">Obsługa napisów (PL / EN)</label>
+                            <select id="subtitleModeSelect"
+                                class="w-full px-2.5 py-1.5 rounded-lg bg-neutral-900 border border-white/15 text-xs text-white focus:outline-none focus:border-amber-400">
+                                <option value="none">Bez napisów</option>
+                                <option value="embed">Osadź napisy w pliku</option>
+                                <option value="srt">Osobny plik .srt</option>
+                                <option value="burn">Wtop napisy w obraz</option>
+                            </select>
+                        </div>
+
+                        <div class="space-y-1 flex flex-col justify-center">
+                            <span class="block text-xs font-semibold text-white">Tryb playlisty</span>
+                            <label class="inline-flex items-start gap-2 cursor-pointer select-none text-xs text-neutral-200 pt-0.5">
+                                <input id="playlistCheckbox" type="checkbox"
+                                    class="mt-0.5 w-4 h-4 rounded border-white/25 bg-neutral-900 text-amber-500 focus:ring-amber-500/50" />
+                                <span>Pobierz całą playlistę</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Trigger -->
+                <div class="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+                    <p id="selectionSummary" class="text-xs sm:text-sm text-neutral-300">
+                        Wybrano: <strong class="text-amber-300">MP4 • 1080p</strong>
+                    </p>
+                    <button id="startDownloadBtn" type="button"
+                        class="px-7 py-3.5 rounded-full font-extrabold text-sm text-black bg-gradient-to-r from-amber-300 via-amber-400 to-orange-500 hover:from-white hover:via-amber-200 hover:to-amber-400 active:scale-[0.99] shadow-lg shadow-amber-500/25 transition flex items-center justify-center gap-2 cursor-pointer">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
+                        </svg>
+                        <span>Rozpocznij pobieranie</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Active Tasks Queue inside Studio Modal -->
+            <div id="tasksSection" class="hidden pt-4 border-t border-white/10 space-y-3">
+                <h4 class="text-xs font-bold uppercase tracking-widest text-amber-300">
+                    Postęp pobierania i konwersji na żywo
+                </h4>
+                <div id="tasksList" class="space-y-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DOWNLOADS LIBRARY MODAL OVERLAY -->
+    <div id="libraryModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6">
+        <div class="glass-card rounded-3xl w-full max-w-3xl max-h-[85vh] flex flex-col p-5 sm:p-7">
+            <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/10 shrink-0">
+                <div>
+                    <h2 class="text-lg font-extrabold text-white">Biblioteka pobranych plików</h2>
+                    <p class="text-xs text-neutral-400">Katalog lokalny <code class="text-amber-300">downloads/</code></p>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button id="refreshFilesBtn" type="button" title="Odśwież listę plików"
+                        class="p-2 rounded-full bg-white/[0.06] hover:bg-white/15 border border-white/15 text-white transition cursor-pointer">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                    </button>
+                    <button id="openFolderMainBtn" type="button"
+                        class="px-4 py-1.5 rounded-full bg-white/[0.08] hover:bg-white hover:text-black border border-white/20 text-xs font-bold uppercase tracking-wider text-white flex items-center gap-1.5 transition cursor-pointer">
+                        <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                        </svg>
+                        <span>Otwórz folder</span>
+                    </button>
+                    <button id="closeLibraryModalBtn" type="button"
+                        class="px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white hover:text-black text-xs font-bold text-white transition cursor-pointer">
+                        Zamknij
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto pt-4">
+                <div id="savedFilesEmpty" class="py-10 text-center text-sm text-neutral-500 border border-dashed border-white/10 rounded-xl">
+                    Brak zapisanych plików w katalogu <code class="text-neutral-300">downloads/</code>.
+                </div>
+
+                <div id="savedFilesList" class="hidden divide-y divide-white/10"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- STARTUP COOKIES NOTICE POPUP MODAL -->
+    <div id="startupCookieModal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6">
+        <div class="glass-card rounded-3xl w-full max-w-lg p-6 sm:p-8 space-y-5 border border-white/15 shadow-[0_20px_60px_rgba(0,0,0,0.85)]">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-300 p-[1.5px] shrink-0">
+                    <div class="w-full h-full rounded-full bg-black flex items-center justify-center">
+                        <svg class="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                </div>
+                <div>
+                    <h2 class="text-lg font-extrabold text-white tracking-tight">Wymóg plików Cookies</h2>
+                    <p class="text-xs text-amber-400 font-semibold">Autoryzacja YouTube &amp; Hosting Chmurowy</p>
+                </div>
+            </div>
+
+            <div class="text-xs sm:text-sm text-neutral-300 space-y-3 leading-relaxed">
+                <p>
+                    Aplikacja wymaga plików cookies głównie do ominięcia weryfikacji botów w serwisie <strong>YouTube</strong>, zwłaszcza gdy jest uruchomiona na publicznym hostingu chmurowym (Render, VPS).
+                </p>
+                <div class="p-3.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs text-neutral-400 space-y-1.5">
+                    <div class="flex items-center gap-2 text-white font-semibold">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                        <span>Pozostałe serwisy (bez cookies):</span>
+                    </div>
+                    <p>
+                        TikTok, CDA, Instagram, Twitch, SoundCloud, Vimeo, Facebook, X i ponad 1700 innych serwisów działają <strong>bez żadnych plików cookies</strong>.
+                    </p>
+                </div>
+                <div id="startupCookieServerStatus" class="text-xs font-mono-num text-neutral-400">
+                    Sprawdzanie statusu cookies na serwerze...
+                </div>
+                <div class="pt-1 text-xs text-neutral-400 flex items-center justify-between">
+                    <span>Posiadasz własny plik cookies.txt?</span>
+                    <button id="startupCookieUploadBtn" type="button" class="text-amber-300 hover:text-white font-semibold underline transition cursor-pointer">
+                        Wgraj plik cookies
+                    </button>
+                </div>
+            </div>
+
+            <div class="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5">
+                <button id="cancelCookieNoticeBtn" type="button"
+                    class="px-5 py-2.5 rounded-full bg-white/[0.07] hover:bg-white/15 border border-white/15 text-xs font-bold text-neutral-300 hover:text-white uppercase tracking-wider transition cursor-pointer">
+                    Anuluj
+                </button>
+                <button id="acceptCookieNoticeBtn" type="button"
+                    class="px-6 py-2.5 rounded-full bg-amber-400 hover:bg-white text-black font-extrabold text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(251,191,36,0.4)] transition cursor-pointer">
+                    Zaakceptuj
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- COOKIES AUTHENTICATION MODAL OVERLAY -->
+    <div id="cookiesModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6">
+        <div class="glass-card rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5 sm:p-7 space-y-5">
+            <div class="flex items-center justify-between border-b border-white/10 pb-3.5">
+                <div>
+                    <h2 class="text-base sm:text-lg font-extrabold text-white">Autoryzacja YouTube (cookies.txt)</h2>
+                    <p id="cookiesModalStatus" class="text-xs text-neutral-400 mt-0.5">Wymagane na serwerach chmurowych (Render / VPS), których adresy IP blokuje YouTube</p>
+                </div>
+                <button id="closeCookiesModalBtn" type="button"
+                    class="px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white hover:text-black text-xs font-bold text-white transition cursor-pointer">
+                    Zamknij
+                </button>
+            </div>
+
+            <div class="p-4 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2 text-xs text-neutral-200 leading-relaxed">
+                <p class="font-bold text-amber-300 uppercase tracking-wider text-[11px]">Jak prawidłowo wyeksportować cookies.txt (zgodnie z dokumentacją yt-dlp):</p>
+                <ol class="list-decimal list-inside space-y-1 text-neutral-300">
+                    <li>Otwórz nowe okno <strong>Incognito / Prywatne</strong> w przeglądarce i zaloguj się na konto YouTube.</li>
+                    <li>W tym samym oknie otwórz <code class="text-white">https://www.youtube.com/robots.txt</code> i wyeksportuj plik rozszerzeniem <strong>Get cookies.txt LOCALLY</strong>.</li>
+                    <li>Od razu <strong>zamknij okno Incognito</strong> (aby przeglądarka nie nadpisała tokenów sesji) i wgraj plik poniżej lub wklej go na stałe w panelu Render (<em>Environment -&gt; Secret Files -&gt; cookies.txt</em>).</li>
+                </ol>
+            </div>
+
+            <div class="space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <label class="text-xs font-bold uppercase tracking-wider text-neutral-300">Zawartość Netscape cookies.txt</label>
+                    <label class="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white hover:text-black border border-white/20 text-xs font-bold text-white transition cursor-pointer">
+                        <span>Wczytaj plik .txt z dysku</span>
+                        <input id="cookiesFileInput" type="file" accept=".txt" class="hidden" />
+                    </label>
+                </div>
+
+                <textarea id="cookiesTextarea" rows="6"
+                    placeholder="# Netscape HTTP Cookie File&#10;.youtube.com	TRUE	/	TRUE	..."
+                    class="w-full p-3.5 rounded-xl bg-black/80 border border-white/15 text-xs font-mono-num text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-amber-400"></textarea>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <button id="clearCookiesBtn" type="button"
+                    class="px-4 py-2 rounded-full bg-red-950/60 hover:bg-red-900/80 border border-red-500/35 text-xs font-bold text-red-200 transition cursor-pointer">
+                    Usuń zapisane cookies
+                </button>
+                <button id="saveCookiesBtn" type="button"
+                    class="px-6 py-2.5 rounded-full bg-amber-300 hover:bg-white text-black font-extrabold text-xs uppercase tracking-wider transition cursor-pointer">
+                    Zapisz i aktywuj cookies
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-5 right-5 z-[60] hidden px-5 py-3 rounded-full bg-neutral-900/95 border border-amber-400/40 text-white font-medium text-xs sm:text-sm shadow-2xl backdrop-blur">
+        Skopiowano!
+    </div>
+
+    <script src="/static/js/app.js?v=8"></script>
+</body>
+</html>
