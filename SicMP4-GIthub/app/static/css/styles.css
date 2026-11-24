@@ -83,6 +83,7 @@ html, body {
 .eclipse-poster-card {
     position: relative;
     overflow: hidden;
+    contain: layout paint;
     border-radius: 16px;
     background-color: #070504;
     border: 1px solid rgba(255, 255, 255, 0.13);
@@ -106,6 +107,7 @@ html, body {
 }
 
 .eclipse-poster-card:hover .eclipse-poster-bg {
+    will-change: transform;
     transform: scale(1.06);
 }
 

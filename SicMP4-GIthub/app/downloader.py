@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import copy
 import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -14,16 +16,38 @@ from typing import Any
 import yt_dlp
 from yt_dlp.utils import download_range_func
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+    BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR)).resolve()
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    BUNDLE_DIR = BASE_DIR
+
 DOWNLOADS_DIR = BASE_DIR / "downloads"
 TEMP_ROOT_DIR = DOWNLOADS_DIR / ".tmp"
+COOKIES_STORE_DIR = DOWNLOADS_DIR / ".cookies"
+CUSTOM_COOKIES_FILE = COOKIES_STORE_DIR / "cookies.txt"
+RENDER_SECRET_COOKIES = Path("/etc/secrets/cookies.txt")
+LOCAL_ROOT_COOKIES = BASE_DIR / "cookies.txt"
 LOCAL_BIN_DIR = BASE_DIR / "bin"
+BUNDLED_BIN_DIR = BUNDLE_DIR / "bin"
 
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_ROOT_DIR.mkdir(parents=True, exist_ok=True)
+COOKIES_STORE_DIR.mkdir(parents=True, exist_ok=True)
 LOCAL_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+INFO_CACHE_TTL_SEC = 300.0
+INFO_CACHE_MAX_ITEMS = 64
+MAX_CONCURRENT_DOWNLOADS = max(1, int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", "3") or "3"))
+
+_DOWNLOAD_SEMAPHORE = threading.BoundedSemaphore(MAX_CONCURRENT_DOWNLOADS)
+_INFO_CACHE_LOCK = threading.Lock()
+_INFO_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+
+_COOKIE_CACHE_LOCK = threading.Lock()
+_COOKIE_CACHE: dict[str, Any] = {"key": None, "text": None, "source": "none"}
 
 
 def strip_ansi(text: str | None) -> str:
@@ -83,6 +107,8 @@ def find_ffmpeg_dir() -> str | None:
 
     if (LOCAL_BIN_DIR / exe_name).is_file():
         return str(LOCAL_BIN_DIR)
+    if (BUNDLED_BIN_DIR / exe_name).is_file():
+        return str(BUNDLED_BIN_DIR)
 
     which_ffmpeg = shutil.which("ffmpeg")
     if which_ffmpeg:
@@ -117,6 +143,25 @@ def find_ffmpeg_dir() -> str | None:
     return None
 
 
+def cleanup_orphaned_temp_files(max_age_sec: float = 3600.0) -> None:
+    """Remove leftover temporary task directories and cookie files, preserving sicmp4.log."""
+    if not TEMP_ROOT_DIR.is_dir():
+        return
+    cutoff = time.time() - max_age_sec
+    for item in TEMP_ROOT_DIR.iterdir():
+        if item.name == "sicmp4.log":
+            continue
+        try:
+            if item.stat().st_mtime >= cutoff:
+                continue
+            if item.is_dir():
+                shutil.rmtree(item, ignore_errors=True)
+            elif item.is_file() and item.name.startswith("cookies_"):
+                item.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 FFMPEG_DIR = find_ffmpeg_dir()
 AUTO_CLEANUP_HOURS = float(os.environ.get("AUTO_CLEANUP_HOURS", "0") or "0")
 
@@ -127,13 +172,131 @@ def cleanup_old_downloads(max_age_hours: float) -> None:
         return
     cutoff = time.time() - (max_age_hours * 3600.0)
     for item in DOWNLOADS_DIR.iterdir():
-        if item.name in (".gitkeep", ".tmp"):
+        if item.name in (".gitkeep", ".tmp", ".cookies", ".webview_cache"):
             continue
         try:
             if item.is_file() and item.stat().st_mtime < cutoff:
                 item.unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def _cookie_candidates() -> list[tuple[Path, str]]:
+    candidates: list[tuple[Path, str]] = [
+        (CUSTOM_COOKIES_FILE, "panel"),
+        (RENDER_SECRET_COOKIES, "render_secret"),
+        (Path("/etc/secrets/etc/secrets/cookies.txt"), "render_secret_nested"),
+        (LOCAL_ROOT_COOKIES, "local_file"),
+    ]
+    sec_dir = Path("/etc/secrets")
+    if sec_dir.is_dir():
+        try:
+            known = {c[0] for c in candidates}
+            for p in sec_dir.rglob("*.txt"):
+                if p not in known:
+                    candidates.append((p, "render_secret_auto"))
+        except OSError:
+            pass
+    return candidates
+
+
+def _resolve_cookie_source_text() -> tuple[str | None, str]:
+    """Return (cookies_text, source_label) using stat-based in-memory caching."""
+    candidates = _cookie_candidates()
+    stat_entries: list[tuple[str, int, int]] = []
+    for candidate, _ in candidates:
+        try:
+            if candidate.is_file():
+                st = candidate.stat()
+                stat_entries.append((str(candidate), st.st_mtime_ns, st.st_size))
+        except OSError:
+            pass
+
+    env_cookies = os.environ.get("YOUTUBE_COOKIES", "").strip()
+    cache_key = (tuple(stat_entries), env_cookies)
+
+    with _COOKIE_CACHE_LOCK:
+        if _COOKIE_CACHE["key"] == cache_key:
+            return _COOKIE_CACHE["text"], _COOKIE_CACHE["source"]
+
+    resolved_text: str | None = None
+    resolved_source = "none"
+    for candidate, label in candidates:
+        if candidate.is_file():
+            try:
+                txt = candidate.read_text(encoding="utf-8", errors="ignore").strip()
+                if txt:
+                    resolved_text = txt
+                    resolved_source = label
+                    break
+            except OSError:
+                pass
+
+    if resolved_text is None and env_cookies:
+        resolved_text = env_cookies
+        resolved_source = "env"
+
+    with _COOKIE_CACHE_LOCK:
+        _COOKIE_CACHE["key"] = cache_key
+        _COOKIE_CACHE["text"] = resolved_text
+        _COOKIE_CACHE["source"] = resolved_source
+
+    return resolved_text, resolved_source
+
+
+def _invalidate_cookie_and_info_caches() -> None:
+    with _COOKIE_CACHE_LOCK:
+        _COOKIE_CACHE["key"] = None
+        _COOKIE_CACHE["text"] = None
+        _COOKIE_CACHE["source"] = "none"
+    with _INFO_CACHE_LOCK:
+        _INFO_CACHE.clear()
+
+
+def make_temp_cookiefile() -> Path | None:
+    """Create an isolated writable copy of cookies.txt so read-only /etc/secrets never fails."""
+    txt, _ = _resolve_cookie_source_text()
+    if not txt:
+        return None
+    if "# Netscape HTTP Cookie File" not in txt and "# HTTP Cookie File" not in txt:
+        txt = "# Netscape HTTP Cookie File\n" + txt
+    tmp_cookie = TEMP_ROOT_DIR / f"cookies_{uuid.uuid4().hex[:10]}.txt"
+    tmp_cookie.write_text(txt + "\n", encoding="utf-8")
+    return tmp_cookie
+
+
+def get_cookies_status() -> dict[str, Any]:
+    txt, source = _resolve_cookie_source_text()
+    return {
+        "configured": txt is not None,
+        "source": source,
+    }
+
+
+def save_custom_cookies(raw_text: str) -> dict[str, Any]:
+    cleaned = raw_text.replace("\r\n", "\n").strip()
+    if not cleaned:
+        raise ValueError("Zawartość pliku cookies.txt jest pusta.")
+    valid_lines = [
+        ln for ln in cleaned.splitlines()
+        if ln.strip() and not ln.strip().startswith("#") and "\t" in ln
+    ]
+    if not valid_lines:
+        raise ValueError(
+            "Nie wykryto wpisów w formacie Netscape cookies.txt (linie rozdzielane tabulatorami)."
+        )
+    if "# Netscape HTTP Cookie File" not in cleaned and "# HTTP Cookie File" not in cleaned:
+        cleaned = "# Netscape HTTP Cookie File\n" + cleaned
+    COOKIES_STORE_DIR.mkdir(parents=True, exist_ok=True)
+    CUSTOM_COOKIES_FILE.write_text(cleaned + "\n", encoding="utf-8")
+    _invalidate_cookie_and_info_caches()
+    return {"configured": True, "source": "panel", "entries": len(valid_lines)}
+
+
+def clear_custom_cookies() -> dict[str, Any]:
+    CUSTOM_COOKIES_FILE.unlink(missing_ok=True)
+    _invalidate_cookie_and_info_caches()
+    return get_cookies_status()
 
 
 def get_ffmpeg_status() -> dict[str, Any]:
@@ -166,16 +329,73 @@ def _pick_best_thumbnail(info: dict[str, Any]) -> str:
 
 def _build_js_runtimes() -> dict[str, dict[str, Any]]:
     runtimes: dict[str, dict[str, Any]] = {}
-    if shutil.which("deno"):
-        runtimes["deno"] = {}
-    if shutil.which("node"):
-        runtimes["node"] = {}
+    deno_name = "deno.exe" if os.name == "nt" else "deno"
+    node_name = "node.exe" if os.name == "nt" else "node"
+
+    for bin_dir in (LOCAL_BIN_DIR, BUNDLED_BIN_DIR):
+        if (bin_dir / deno_name).is_file():
+            runtimes["deno"] = {"path": str(bin_dir / deno_name)}
+            break
+    else:
+        if shutil.which("deno"):
+            runtimes["deno"] = {}
+
+    for bin_dir in (LOCAL_BIN_DIR, BUNDLED_BIN_DIR):
+        if (bin_dir / node_name).is_file():
+            runtimes["node"] = {"path": str(bin_dir / node_name)}
+            break
+    else:
+        if shutil.which("node"):
+            runtimes["node"] = {}
+
     return runtimes
 
 
+JS_RUNTIMES = _build_js_runtimes()
+
+
+def _get_js_runtimes() -> dict[str, dict[str, Any]]:
+    global JS_RUNTIMES
+    if not JS_RUNTIMES:
+        JS_RUNTIMES = _build_js_runtimes()
+    return JS_RUNTIMES
+
+
+cleanup_orphaned_temp_files()
+
+
 def extract_video_info(url: str) -> dict[str, Any]:
-    """Quickly extract video/audio/playlist metadata and available resolutions."""
+    """Quickly extract video/audio/playlist metadata and available resolutions (with TTL cache)."""
+    now = time.monotonic()
+    with _INFO_CACHE_LOCK:
+        cached = _INFO_CACHE.get(url)
+        if cached and (now - cached[0]) < INFO_CACHE_TTL_SEC:
+            return copy.deepcopy(cached[1])
+
+    tmp_cookie = make_temp_cookiefile()
+    try:
+        result = _extract_video_info_inner(url, tmp_cookie)
+    finally:
+        if tmp_cookie:
+            tmp_cookie.unlink(missing_ok=True)
+
+    now_done = time.monotonic()
+    with _INFO_CACHE_LOCK:
+        if len(_INFO_CACHE) >= INFO_CACHE_MAX_ITEMS and url not in _INFO_CACHE:
+            expired = [k for k, (ts, _) in _INFO_CACHE.items() if (now_done - ts) >= INFO_CACHE_TTL_SEC]
+            for k in expired:
+                _INFO_CACHE.pop(k, None)
+            if len(_INFO_CACHE) >= INFO_CACHE_MAX_ITEMS:
+                oldest_key = min(_INFO_CACHE, key=lambda k: _INFO_CACHE[k][0])
+                _INFO_CACHE.pop(oldest_key, None)
+        _INFO_CACHE[url] = (now_done, copy.deepcopy(result))
+
+    return result
+
+
+def _extract_video_info_inner(url: str, cookie_path: Path | None) -> dict[str, Any]:
     is_pure_playlist_url = ("/playlist?" in url.lower()) or ("list=" in url.lower() and "v=" not in url.lower())
+    js_rt = _get_js_runtimes()
 
     if is_pure_playlist_url:
         flat_opts: dict[str, Any] = {
@@ -184,6 +404,10 @@ def extract_video_info(url: str) -> dict[str, Any]:
             "extract_flat": True,
             "socket_timeout": 15,
         }
+        if cookie_path:
+            flat_opts["cookiefile"] = str(cookie_path)
+        if js_rt:
+            flat_opts["js_runtimes"] = js_rt
         with yt_dlp.YoutubeDL(flat_opts) as ydl:
             pl_info = ydl.extract_info(url, download=False)
             entries = [e for e in (pl_info.get("entries") or []) if e]
@@ -217,7 +441,8 @@ def extract_video_info(url: str) -> dict[str, Any]:
     }
     if FFMPEG_DIR:
         ydl_opts["ffmpeg_location"] = FFMPEG_DIR
-    js_rt = _build_js_runtimes()
+    if cookie_path:
+        ydl_opts["cookiefile"] = str(cookie_path)
     if js_rt:
         ydl_opts["js_runtimes"] = js_rt
 
@@ -365,6 +590,15 @@ class TaskManager:
             "updated_at": now,
         }
         with self._lock:
+            if len(self._tasks) > 40:
+                cutoff = now - 7200.0
+                stale_ids = [
+                    tid
+                    for tid, t in self._tasks.items()
+                    if t.get("status") in ("completed", "error") and t.get("updated_at", now) < cutoff
+                ]
+                for tid in stale_ids:
+                    self._tasks.pop(tid, None)
             self._tasks[task_id] = state
         return dict(state)
 
@@ -380,6 +614,16 @@ class TaskManager:
         with self._lock:
             task = self._tasks.get(task_id)
             return dict(task) if task else None
+
+    def get_task_if_updated(self, task_id: str, last_ts: float) -> tuple[dict[str, Any] | None, bool]:
+        """Return (task_copy, changed) without copying when updated_at matches last_ts."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return None, True
+            if task.get("updated_at", 0.0) == last_ts:
+                return None, False
+            return dict(task), True
 
 
 task_manager = TaskManager()
@@ -410,6 +654,8 @@ def _burn_subtitles_ffmpeg(ffmpeg_dir: str, video_path: Path, srt_path: Path) ->
     cmd = [
         str(ffmpeg_exe),
         "-y",
+        "-threads",
+        "0",
         "-i",
         str(video_path),
         "-vf",
@@ -422,9 +668,19 @@ def _burn_subtitles_ffmpeg(ffmpeg_dir: str, video_path: Path, srt_path: Path) ->
         "20",
         "-c:a",
         "copy",
-        str(temp_out),
     ]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if video_path.suffix.lower() == ".mp4":
+        cmd.extend(["-movflags", "+faststart"])
+    cmd.append(str(temp_out))
+
+    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    subprocess.run(
+        cmd,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        creationflags=flags,
+    )
     temp_out.replace(video_path)
     return video_path
 
@@ -483,18 +739,22 @@ def run_download_sync(task_id: str) -> None:
     else:
         outtmpl_name = f"%(title).110B [{qtag}].%(ext)s"
 
-    task_temp_dir = TEMP_ROOT_DIR / task_id
-    task_temp_dir.mkdir(parents=True, exist_ok=True)
-    if AUTO_CLEANUP_HOURS > 0:
-        cleanup_old_downloads(AUTO_CLEANUP_HOURS)
-    started_wall_time = time.time()
+    max_pct_seen = 0.0
+    last_hook_t = 0.0
+    last_stream_tag = ""
+    last_pl_idx: Any = None
+    title_resolved = bool(task.get("title") and task["title"] != "Pobieranie multimediów...")
 
     def progress_hook(d: dict[str, Any]) -> None:
+        nonlocal max_pct_seen, last_hook_t, last_stream_tag, last_pl_idx, title_resolved
         st = d.get("status")
         info_dict = d.get("info_dict") or {}
 
         pl_idx = info_dict.get("playlist_index")
         pl_cnt = info_dict.get("n_entries") or info_dict.get("playlist_count")
+        if allow_playlist and pl_idx != last_pl_idx:
+            last_pl_idx = pl_idx
+            max_pct_seen = 0.0
         pl_prefix = f"[Pozycja {pl_idx}/{pl_cnt}] " if (allow_playlist and pl_idx and pl_cnt) else ""
 
         if st == "downloading":
@@ -517,16 +777,33 @@ def run_download_sync(task_id: str) -> None:
 
             if not is_audio_only_target and is_video_stream:
                 mapped_pct = raw_pct * 0.84
+                stream_tag = "video"
                 stage_text = f"{pl_prefix}Pobieranie strumienia wideo (1/2)..."
             elif not is_audio_only_target and is_audio_stream:
                 mapped_pct = 84.0 + (raw_pct * 0.11)
+                stream_tag = "audio"
                 stage_text = f"{pl_prefix}Pobieranie strumienia audio (2/2)..."
             elif is_audio_only_target:
                 mapped_pct = raw_pct * 0.90
+                stream_tag = "audio_only"
                 stage_text = f"{pl_prefix}Pobieranie strumienia audio..."
             else:
                 mapped_pct = raw_pct * 0.94
+                stream_tag = "combined"
                 stage_text = f"{pl_prefix}Pobieranie multimediów..."
+
+            now_m = time.monotonic()
+            if stream_tag == last_stream_tag and raw_pct < 99.5 and (now_m - last_hook_t) < 0.12:
+                return
+            last_hook_t = now_m
+            last_stream_tag = stream_tag
+
+            if allow_playlist:
+                max_pct_seen = max(max_pct_seen, mapped_pct)
+                effective_pct = mapped_pct
+            else:
+                max_pct_seen = max(max_pct_seen, mapped_pct)
+                effective_pct = max_pct_seen
 
             speed_bytes = d.get("speed")
             speed_str = f"{format_bytes(speed_bytes)}/s" if speed_bytes else strip_ansi(d.get("_speed_str")) or "—"
@@ -543,35 +820,33 @@ def run_download_sync(task_id: str) -> None:
                 else format_bytes(downloaded)
             )
 
-            current = task_manager.get_task(task_id)
-            prev_pct = current["percent"] if (current and not allow_playlist) else 0.0
             updates: dict[str, Any] = {
                 "status": "downloading",
                 "stage": stage_text,
-                "percent": round(max(prev_pct, mapped_pct), 1),
+                "percent": round(effective_pct, 1),
                 "speed": speed_str,
                 "eta": eta_str,
                 "downloaded_str": dl_str,
             }
-            if info_dict.get("title") and not allow_playlist and (
-                not current or current["title"] == "Pobieranie multimediów..."
-            ):
+            if not title_resolved and not allow_playlist and info_dict.get("title"):
                 updates["title"] = info_dict["title"]
+                title_resolved = True
             task_manager.update_task(task_id, **updates)
 
         elif st == "finished":
-            current = task_manager.get_task(task_id)
-            prev_pct = current["percent"] if (current and not allow_playlist) else 90.0
+            floor_pct = 90.0 if allow_playlist else max(max_pct_seen, 94.0)
+            max_pct_seen = floor_pct
             task_manager.update_task(
                 task_id,
                 status="processing",
                 stage=f"{pl_prefix}Przetwarzanie strumieni w FFmpeg...",
-                percent=round(max(prev_pct, 94.0), 1),
+                percent=round(floor_pct, 1),
                 speed="FFmpeg",
                 eta="chwilka...",
             )
 
     def postprocessor_hook(d: dict[str, Any]) -> None:
+        nonlocal max_pct_seen
         pp_status = d.get("status")
         pp_name = d.get("postprocessor") or ""
         if pp_status == "started":
@@ -591,129 +866,148 @@ def run_download_sync(task_id: str) -> None:
                 stage_msg = "Łączenie obrazu i dźwięku (FFmpeg muxing)..."
                 pct = 96.0
 
-            current = task_manager.get_task(task_id)
-            prev_pct = current["percent"] if (current and not allow_playlist) else 95.0
+            effective_pct = max(pct, 95.0) if allow_playlist else max(max_pct_seen, pct)
+            max_pct_seen = effective_pct
             task_manager.update_task(
                 task_id,
                 status="processing",
                 stage=stage_msg,
-                percent=round(max(prev_pct, pct), 1),
+                percent=round(effective_pct, 1),
                 speed="FFmpeg",
                 eta="chwilka...",
             )
 
-    ydl_opts: dict[str, Any] = {
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": not allow_playlist,
-        "ignoreerrors": allow_playlist,
-        "ffmpeg_location": FFMPEG_DIR,
-        "paths": {
-            "home": str(DOWNLOADS_DIR),
-            "temp": str(task_temp_dir),
-        },
-        "outtmpl": {"default": outtmpl_name},
-        "windowsfilenames": True,
-        "overwrites": True,
-        "hls_use_mpegts": False,
-        "concurrent_fragment_downloads": 8,
-        "retries": 10,
-        "fragment_retries": 10,
-        "file_access_retries": 5,
-        "progress_hooks": [progress_hook],
-        "postprocessor_hooks": [postprocessor_hook],
-    }
-    js_rt = _build_js_runtimes()
-    if js_rt:
-        ydl_opts["js_runtimes"] = js_rt
+    task_temp_dir = TEMP_ROOT_DIR / task_id
+    tmp_cookie: Path | None = None
 
-    if start_sec is not None or end_sec is not None:
-        r_start = start_sec if start_sec is not None else 0.0
-        r_end = end_sec if end_sec is not None else float("inf")
-        ydl_opts["download_ranges"] = download_range_func(None, [(r_start, r_end)])
-        ydl_opts["force_keyframes_at_cuts"] = True
-
-    postprocessors: list[dict[str, Any]] = []
-
-    if format_type == "mp4":
-        if quality == "best":
-            fmt_selector = "bv*+ba[ext=m4a]/bv*+ba/b[ext=mp4]/b"
-            ydl_opts["format_sort"] = ["res", "fps", "vcodec:h264", "acodec:m4a", "proto:https"]
-        else:
-            h = int(quality) if quality.isdigit() else 1080
-            fmt_selector = f"bv*[height<={h}]+ba[ext=m4a]/bv*[height<={h}]+ba/b[height<={h}]/b"
-            ydl_opts["format_sort"] = [f"res:{h}", "vcodec:h264", "acodec:m4a", "proto:https"]
-        ydl_opts["format"] = fmt_selector
-        ydl_opts["merge_output_format"] = "mp4"
-        # Ensure single-stream HLS (.m3u8/.ts) or other containers are always remuxed to .mp4 BEFORE metadata!
-        postprocessors.append({"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"})
-        ydl_opts["postprocessor_args"] = {
-            "Merger+ffmpeg_o": ["-movflags", "+faststart"],
-            "VideoRemuxer+ffmpeg_o": ["-movflags", "+faststart"],
-        }
-
-    elif format_type in ("mkv", "webm"):
-        if quality == "best":
-            fmt_selector = "bv*+ba/b"
-        else:
-            h = int(quality) if quality.isdigit() else 1080
-            fmt_selector = f"bv*[height<={h}]+ba/b[height<={h}]/b"
-            ydl_opts["format_sort"] = [f"res:{h}", "proto:https"]
-        ydl_opts["format"] = fmt_selector
-        ydl_opts["merge_output_format"] = format_type
-        postprocessors.append({"key": "FFmpegVideoRemuxer", "preferedformat": format_type})
-
-    elif format_type == "mp3":
-        bitrate = quality if quality in ("320", "256", "192", "128") else "320"
-        ydl_opts["format"] = "ba[ext=m4a]/ba/b"
-        ydl_opts["format_sort"] = ["abr", "proto:https"]
-        ydl_opts["writethumbnail"] = True
-        postprocessors.extend([
-            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": bitrate},
-            {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
-            {"key": "FFmpegMetadata", "add_metadata": True},
-            {"key": "EmbedThumbnail"},
-        ])
-
-    elif format_type in ("m4a", "flac", "wav"):
-        ydl_opts["format"] = "ba/b"
-        ydl_opts["format_sort"] = ["abr", "proto:https"]
-        postprocessors.extend([
-            {"key": "FFmpegExtractAudio", "preferredcodec": format_type},
-            {"key": "FFmpegMetadata", "add_metadata": True},
-        ])
-
-    else:
+    acquired = _DOWNLOAD_SEMAPHORE.acquire(blocking=False)
+    if not acquired:
         task_manager.update_task(
             task_id,
-            status="error",
-            stage="Nieobsługiwany format",
-            error=f"Nieznany typ formatu: {format_type}",
+            status="queued",
+            stage="Oczekiwanie na wolny slot pobierania...",
         )
-        return
-
-    if not is_audio_only_target and subtitle_mode in ("embed", "srt", "burn"):
-        ydl_opts["writesubtitles"] = True
-        ydl_opts["writeautomaticsub"] = True
-        ydl_opts["subtitleslangs"] = ["pl", "en"]
-        if subtitle_mode in ("srt", "burn"):
-            postprocessors.append({"key": "FFmpegSubtitlesConvertor", "format": "srt"})
-        elif subtitle_mode == "embed":
-            postprocessors.append({"key": "FFmpegEmbedSubtitle"})
-
-    if not is_audio_only_target:
-        postprocessors.append({"key": "FFmpegMetadata", "add_metadata": True})
-
-    ydl_opts["postprocessors"] = postprocessors
-
-    task_manager.update_task(
-        task_id,
-        status="downloading",
-        stage="Inicjalizacja pobierania z serwisu...",
-        percent=1.0,
-    )
+        _DOWNLOAD_SEMAPHORE.acquire()
 
     try:
+        task_temp_dir.mkdir(parents=True, exist_ok=True)
+        if AUTO_CLEANUP_HOURS > 0:
+            cleanup_old_downloads(AUTO_CLEANUP_HOURS)
+        started_wall_time = time.time()
+
+        ydl_opts: dict[str, Any] = {
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": not allow_playlist,
+            "ignoreerrors": allow_playlist,
+            "ffmpeg_location": FFMPEG_DIR,
+            "paths": {
+                "home": str(DOWNLOADS_DIR),
+                "temp": str(task_temp_dir),
+            },
+            "outtmpl": {"default": outtmpl_name},
+            "windowsfilenames": True,
+            "overwrites": True,
+            "hls_use_mpegts": False,
+            "concurrent_fragment_downloads": 8,
+            "retries": 10,
+            "fragment_retries": 10,
+            "file_access_retries": 5,
+            "progress_hooks": [progress_hook],
+            "postprocessor_hooks": [postprocessor_hook],
+        }
+        js_rt = _get_js_runtimes()
+        if js_rt:
+            ydl_opts["js_runtimes"] = js_rt
+        tmp_cookie = make_temp_cookiefile()
+        if tmp_cookie:
+            ydl_opts["cookiefile"] = str(tmp_cookie)
+
+        if start_sec is not None or end_sec is not None:
+            r_start = start_sec if start_sec is not None else 0.0
+            r_end = end_sec if end_sec is not None else float("inf")
+            ydl_opts["download_ranges"] = download_range_func(None, [(r_start, r_end)])
+            ydl_opts["force_keyframes_at_cuts"] = True
+
+        postprocessors: list[dict[str, Any]] = []
+
+        if format_type == "mp4":
+            if quality == "best":
+                fmt_selector = "bv*+ba[ext=m4a]/bv*+ba/b[ext=mp4]/b"
+                ydl_opts["format_sort"] = ["res", "fps", "vcodec:h264", "acodec:m4a", "proto:https"]
+            else:
+                h = int(quality) if quality.isdigit() else 1080
+                fmt_selector = f"bv*[height<={h}]+ba[ext=m4a]/bv*[height<={h}]+ba/b[height<={h}]/b"
+                ydl_opts["format_sort"] = [f"res:{h}", "vcodec:h264", "acodec:m4a", "proto:https"]
+            ydl_opts["format"] = fmt_selector
+            ydl_opts["merge_output_format"] = "mp4"
+            postprocessors.append({"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"})
+            ydl_opts["postprocessor_args"] = {
+                "Merger+ffmpeg_o": ["-movflags", "+faststart"],
+                "VideoRemuxer+ffmpeg_o": ["-movflags", "+faststart"],
+            }
+
+        elif format_type in ("mkv", "webm"):
+            if quality == "best":
+                fmt_selector = "bv*+ba/b"
+            else:
+                h = int(quality) if quality.isdigit() else 1080
+                fmt_selector = f"bv*[height<={h}]+ba/b[height<={h}]/b"
+                ydl_opts["format_sort"] = [f"res:{h}", "proto:https"]
+            ydl_opts["format"] = fmt_selector
+            ydl_opts["merge_output_format"] = format_type
+            postprocessors.append({"key": "FFmpegVideoRemuxer", "preferedformat": format_type})
+
+        elif format_type == "mp3":
+            bitrate = quality if quality in ("320", "256", "192", "128") else "320"
+            ydl_opts["format"] = "ba[ext=m4a]/ba/b"
+            ydl_opts["format_sort"] = ["abr", "proto:https"]
+            ydl_opts["writethumbnail"] = True
+            postprocessors.extend([
+                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": bitrate},
+                {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
+                {"key": "FFmpegMetadata", "add_metadata": True},
+                {"key": "EmbedThumbnail"},
+            ])
+
+        elif format_type in ("m4a", "flac", "wav"):
+            ydl_opts["format"] = "ba/b"
+            ydl_opts["format_sort"] = ["abr", "proto:https"]
+            postprocessors.extend([
+                {"key": "FFmpegExtractAudio", "preferredcodec": format_type},
+                {"key": "FFmpegMetadata", "add_metadata": True},
+            ])
+
+        else:
+            task_manager.update_task(
+                task_id,
+                status="error",
+                stage="Nieobsługiwany format",
+                error=f"Nieznany typ formatu: {format_type}",
+            )
+            return
+
+        if not is_audio_only_target and subtitle_mode in ("embed", "srt", "burn"):
+            ydl_opts["writesubtitles"] = True
+            ydl_opts["writeautomaticsub"] = True
+            ydl_opts["subtitleslangs"] = ["pl", "en"]
+            if subtitle_mode in ("srt", "burn"):
+                postprocessors.append({"key": "FFmpegSubtitlesConvertor", "format": "srt"})
+            elif subtitle_mode == "embed":
+                postprocessors.append({"key": "FFmpegEmbedSubtitle"})
+
+        if not is_audio_only_target:
+            postprocessors.append({"key": "FFmpegMetadata", "add_metadata": True})
+
+        ydl_opts["postprocessors"] = postprocessors
+
+        task_manager.update_task(
+            task_id,
+            status="downloading",
+            stage="Inicjalizacja pobierania z serwisu...",
+            percent=1.0,
+        )
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if not info:
@@ -749,9 +1043,17 @@ def run_download_sync(task_id: str) -> None:
                     )
                     safe_pl_title = re.sub(r'[<>:"/\\|?*]+', "_", info.get("title") or "Playlista").strip()[:80]
                     zip_path = DOWNLOADS_DIR / f"{safe_pl_title} [{format_type.upper()}].zip"
+                    used_arcnames: set[str] = set()
                     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
                         for mp in downloaded_paths:
-                            zf.write(mp, arcname=mp.name)
+                            arcname = mp.name
+                            if arcname in used_arcnames:
+                                idx = 2
+                                while f"{mp.stem} ({idx}){mp.suffix}" in used_arcnames:
+                                    idx += 1
+                                arcname = f"{mp.stem} ({idx}){mp.suffix}"
+                            used_arcnames.add(arcname)
+                            zf.write(mp, arcname=arcname)
                     final_path = zip_path
             else:
                 final_path = None
@@ -823,7 +1125,10 @@ def run_download_sync(task_id: str) -> None:
             error=clean_err or "Wystąpił nieoczekiwany błąd podczas przetwarzania.",
         )
     finally:
+        if tmp_cookie:
+            tmp_cookie.unlink(missing_ok=True)
         shutil.rmtree(task_temp_dir, ignore_errors=True)
+        _DOWNLOAD_SEMAPHORE.release()
 
 
 def list_downloaded_files() -> list[dict[str, Any]]:

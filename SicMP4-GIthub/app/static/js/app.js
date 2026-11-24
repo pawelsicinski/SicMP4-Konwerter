@@ -16,6 +16,23 @@
     const libraryModal = document.getElementById("libraryModal");
     const closeLibraryModalBtn = document.getElementById("closeLibraryModalBtn");
 
+    const openCookiesBtn = document.getElementById("openCookiesBtn");
+    const cookiesStatusDot = document.getElementById("cookiesStatusDot");
+    const cookiesModal = document.getElementById("cookiesModal");
+    const closeCookiesModalBtn = document.getElementById("closeCookiesModalBtn");
+    const cookiesModalStatus = document.getElementById("cookiesModalStatus");
+    const cookiesFileInput = document.getElementById("cookiesFileInput");
+    const cookiesTextarea = document.getElementById("cookiesTextarea");
+    const saveCookiesBtn = document.getElementById("saveCookiesBtn");
+    const clearCookiesBtn = document.getElementById("clearCookiesBtn");
+    const errorCookiesBtn = document.getElementById("errorCookiesBtn");
+
+    const startupCookieModal = document.getElementById("startupCookieModal");
+    const startupCookieServerStatus = document.getElementById("startupCookieServerStatus");
+    const startupCookieUploadBtn = document.getElementById("startupCookieUploadBtn");
+    const cancelCookieNoticeBtn = document.getElementById("cancelCookieNoticeBtn");
+    const acceptCookieNoticeBtn = document.getElementById("acceptCookieNoticeBtn");
+
     const analyzeForm = document.getElementById("analyzeForm");
     const urlInput = document.getElementById("urlInput");
     const clearUrlBtn = document.getElementById("clearUrlBtn");
@@ -69,15 +86,22 @@
     let selectedVariantKey = "mp4:1080";
     let lanUrl = "";
     let lastAnalyzedUrl = "";
-    let isAnalyzing = false;
+    let activeInfoController = null;
     let hasActiveSession = false;
+    let isDesktopApp = false;
+    let serverNativeHostUi = false;
 
     const isLocalHostClient = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
     const isPrivateLanOrLocal =
         isLocalHostClient ||
         /^192\.168\.\d+\.\d+$/.test(window.location.hostname) ||
         /^10\.\d+\.\d+\.\d+$/.test(window.location.hostname);
+    const canUseNativeHost = () => isLocalHostClient && serverNativeHostUi;
+
     const autoTriggeredTasks = new Set();
+    const completedTasksNotified = new Set();
+    const pendingTaskFrames = new Map();
+    const latestTaskStates = new Map();
 
     function escapeHtml(str) {
         const div = document.createElement("div");
@@ -99,9 +123,18 @@
         if (!msg) {
             errorAlert.classList.add("hidden");
             errorAlertText.textContent = "";
+            if (errorCookiesBtn) errorCookiesBtn.classList.add("hidden");
             return;
         }
-        errorAlertText.textContent = msg;
+        const isBotAuthErr = /not a bot|cookies|sign in to confirm/i.test(msg);
+        if (isBotAuthErr) {
+            errorAlertText.textContent =
+                "YouTube wymaga autoryzacji sesji (cookies.txt) na adresach IP serwerów chmurowych (np. Render). Dodaj swoje cookies.txt, aby odblokować pobieranie.";
+            if (errorCookiesBtn) errorCookiesBtn.classList.remove("hidden");
+        } else {
+            errorAlertText.textContent = msg;
+            if (errorCookiesBtn) errorCookiesBtn.classList.add("hidden");
+        }
         errorAlert.classList.remove("hidden");
     }
 
@@ -116,6 +149,7 @@
     // Modal helpers
     function openStudioModal() {
         libraryModal.classList.add("hidden");
+        if (cookiesModal) cookiesModal.classList.add("hidden");
         studioModal.classList.remove("hidden");
     }
 
@@ -129,6 +163,7 @@
 
     function openLibraryModal() {
         studioModal.classList.add("hidden");
+        if (cookiesModal) cookiesModal.classList.add("hidden");
         loadSavedFiles();
         libraryModal.classList.remove("hidden");
     }
@@ -137,10 +172,157 @@
         libraryModal.classList.add("hidden");
     }
 
+    function openCookiesModal() {
+        studioModal.classList.add("hidden");
+        libraryModal.classList.add("hidden");
+        if (cookiesModal) cookiesModal.classList.remove("hidden");
+    }
+
+    function closeCookiesModal() {
+        if (cookiesModal) cookiesModal.classList.add("hidden");
+    }
+
+    function updateCookiesBadge(cookiesInfo) {
+        if (cookiesStatusDot) {
+            if (cookiesInfo && cookiesInfo.configured) {
+                cookiesStatusDot.className = "w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]";
+                if (cookiesModalStatus) {
+                    cookiesModalStatus.textContent = `Status: Aktywne cookies (${cookiesInfo.source})`;
+                }
+            } else {
+                cookiesStatusDot.className = "w-2 h-2 rounded-full bg-neutral-500";
+                if (cookiesModalStatus) {
+                    cookiesModalStatus.textContent = "Status: Brak wgranych cookies (zalecane dla YouTube na Render / VPS)";
+                }
+            }
+        }
+
+        if (startupCookieServerStatus) {
+            if (cookiesInfo && cookiesInfo.configured) {
+                startupCookieServerStatus.innerHTML = `<span class="text-emerald-400 font-semibold">Status serwera: Aktywne cookies (${escapeHtml(cookiesInfo.source)}). Pobieranie z YouTube jest w pełni odblokowane dla wszystkich.</span>`;
+            } else {
+                startupCookieServerStatus.innerHTML = `<span class="text-amber-400 font-medium">Status serwera: Brak aktywnych cookies. Na publicznym hostingu YouTube może wymagać autoryzacji cookies.txt.</span>`;
+            }
+        }
+    }
+
+    function openStartupCookieModal() {
+        if (startupCookieModal) startupCookieModal.classList.remove("hidden");
+    }
+
+    function closeStartupCookieModal() {
+        if (startupCookieModal) startupCookieModal.classList.add("hidden");
+    }
+
+    function initStartupCookieNotice() {
+        const decision = sessionStorage.getItem("sicmp4_cookie_decision") || localStorage.getItem("sicmp4_cookie_decision");
+        if (!decision) {
+            openStartupCookieModal();
+        }
+    }
+
     closeStudioModalBtn.addEventListener("click", closeStudioModal);
     openStudioPillBtn.addEventListener("click", openStudioModal);
     openLibraryBtn.addEventListener("click", openLibraryModal);
     closeLibraryModalBtn.addEventListener("click", closeLibraryModal);
+    if (openCookiesBtn) openCookiesBtn.addEventListener("click", openCookiesModal);
+    if (closeCookiesModalBtn) closeCookiesModalBtn.addEventListener("click", closeCookiesModal);
+    if (errorCookiesBtn) errorCookiesBtn.addEventListener("click", openCookiesModal);
+
+    if (cookiesModal) {
+        cookiesModal.addEventListener("click", (e) => {
+            if (e.target === cookiesModal) closeCookiesModal();
+        });
+    }
+
+    if (cookiesFileInput) {
+        cookiesFileInput.addEventListener("change", async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const text = await file.text();
+            cookiesTextarea.value = text;
+            showToast(`Wczytano plik: ${file.name}`);
+        });
+    }
+
+    if (saveCookiesBtn) {
+        saveCookiesBtn.addEventListener("click", async () => {
+            const raw = cookiesTextarea.value.trim();
+            if (!raw) {
+                showToast("Wklej zawartość lub wybierz plik cookies.txt");
+                return;
+            }
+            saveCookiesBtn.disabled = true;
+            try {
+                const res = await fetch("/api/cookies", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ cookies_text: raw }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Nieprawidłowy format cookies.txt");
+                updateCookiesBadge(data);
+                cookiesTextarea.value = "";
+                closeCookiesModal();
+                showError("");
+                showToast(`Aktywowano cookies (${data.entries || "OK"} wpisów)`);
+                const currentUrl = urlInput.value.trim();
+                if (/^https?:\/\/\S+/i.test(currentUrl)) {
+                    lastAnalyzedUrl = "";
+                    analyzeUrl(currentUrl);
+                }
+            } catch (err) {
+                showToast(err.message || "Błąd zapisu cookies.txt");
+            } finally {
+                saveCookiesBtn.disabled = false;
+            }
+        });
+    }
+
+    if (clearCookiesBtn) {
+        clearCookiesBtn.addEventListener("click", async () => {
+            const res = await fetch("/api/cookies", { method: "DELETE" });
+            if (res.ok) {
+                const data = await res.json();
+                updateCookiesBadge(data);
+                cookiesTextarea.value = "";
+                showToast("Usunięto zapisane cookies z panelu");
+            }
+        });
+    }
+
+    if (acceptCookieNoticeBtn) {
+        acceptCookieNoticeBtn.addEventListener("click", () => {
+            sessionStorage.setItem("sicmp4_cookie_decision", "accepted");
+            localStorage.setItem("sicmp4_cookie_decision", "accepted");
+            closeStartupCookieModal();
+            showToast("Zaakceptowano informację o plikach cookies");
+        });
+    }
+
+    if (cancelCookieNoticeBtn) {
+        cancelCookieNoticeBtn.addEventListener("click", () => {
+            sessionStorage.setItem("sicmp4_cookie_decision", "dismissed");
+            localStorage.setItem("sicmp4_cookie_decision", "dismissed");
+            closeStartupCookieModal();
+            showToast("Kontynuujesz bez cookies (inne serwisy działają normalnie)");
+        });
+    }
+
+    if (startupCookieUploadBtn) {
+        startupCookieUploadBtn.addEventListener("click", () => {
+            closeStartupCookieModal();
+            openCookiesModal();
+        });
+    }
+
+    if (startupCookieModal) {
+        startupCookieModal.addEventListener("click", (e) => {
+            if (e.target === startupCookieModal) {
+                closeStartupCookieModal();
+            }
+        });
+    }
 
     studioModal.addEventListener("click", (e) => {
         if (e.target === studioModal) closeStudioModal();
@@ -154,6 +336,8 @@
         if (e.key === "Escape") {
             if (!studioModal.classList.contains("hidden")) closeStudioModal();
             if (!libraryModal.classList.contains("hidden")) closeLibraryModal();
+            if (cookiesModal && !cookiesModal.classList.contains("hidden")) closeCookiesModal();
+            if (startupCookieModal && !startupCookieModal.classList.contains("hidden")) closeStartupCookieModal();
         }
     });
 
@@ -162,12 +346,27 @@
         toggleExtraChevron.style.transform = isHidden ? "rotate(0deg)" : "rotate(180deg)";
     });
 
-    // 1. Health check & LAN address
+    // 1. Health check, Adaptive Mode Detection & LAN address
     async function checkHealth() {
         try {
             const res = await fetch("/api/health");
             if (!res.ok) throw new Error("Health check failed");
             const data = await res.json();
+
+            isDesktopApp = Boolean(data.desktop);
+            serverNativeHostUi = Boolean(data.native_host_ui);
+
+            if (openCookiesBtn) {
+                if (isDesktopApp) {
+                    openCookiesBtn.classList.add("hidden");
+                    openCookiesBtn.classList.remove("flex");
+                } else {
+                    openCookiesBtn.classList.remove("hidden");
+                    openCookiesBtn.classList.add("flex");
+                }
+            }
+
+            openFolderMainBtn.classList.toggle("hidden", !canUseNativeHost());
 
             if (data.ffmpeg && data.ffmpeg.available) {
                 ffmpegDot.className = "w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.85)]";
@@ -177,11 +376,23 @@
                 ffmpegText.textContent = "Brak FFmpeg!";
             }
 
-            if (isPrivateLanOrLocal && data.lan_url && !data.lan_url.includes("127.0.0.1")) {
+            if (data.cookies) {
+                updateCookiesBadge(data.cookies);
+            }
+
+            if (!isDesktopApp && isPrivateLanOrLocal && data.lan_url && !data.lan_url.includes("127.0.0.1")) {
                 lanUrl = data.lan_url;
                 lanUrlText.textContent = data.lan_url.replace("http://", "");
                 lanCopyBtn.classList.remove("hidden");
                 lanCopyBtn.classList.add("flex");
+            } else {
+                lanUrl = "";
+                lanCopyBtn.classList.add("hidden");
+                lanCopyBtn.classList.remove("sm:flex", "flex");
+            }
+
+            if (!isDesktopApp && !isPrivateLanOrLocal && !(data.cookies && data.cookies.configured)) {
+                initStartupCookieNotice();
             }
         } catch {
             ffmpegDot.className = "w-2 h-2 rounded-full bg-red-500";
@@ -211,18 +422,34 @@
     });
 
     pasteBtn.addEventListener("click", async () => {
-        try {
-            const clip = await navigator.clipboard.readText();
-            if (clip && clip.trim()) {
-                urlInput.value = clip.trim();
-                syncClearBtn();
-                if (/^https?:\/\/\S+/i.test(urlInput.value)) {
-                    analyzeUrl(urlInput.value);
+        let clip = "";
+        if (canUseNativeHost()) {
+            try {
+                const res = await fetch("/api/clipboard");
+                if (res.ok) {
+                    const data = await res.json();
+                    clip = (data && data.text) || "";
                 }
+            } catch {
+                clip = "";
             }
-        } catch {
+        }
+        if (!clip) {
+            try {
+                clip = await navigator.clipboard.readText();
+            } catch {
+                clip = "";
+            }
+        }
+        if (clip && clip.trim()) {
+            urlInput.value = clip.trim();
+            syncClearBtn();
+            if (/^https?:\/\/\S+/i.test(urlInput.value)) {
+                analyzeUrl(urlInput.value);
+            }
+        } else {
             urlInput.focus();
-            showToast("Użyj skrótu Ctrl+V w polu adresu");
+            showToast("Schowek jest pusty lub użyj skrótu Ctrl+V");
         }
     });
 
@@ -244,10 +471,13 @@
         }
     });
 
-    // 3. Metadata Fetching
+    // 3. Metadata Fetching (with AbortController cancellation for rapid pastes)
     async function analyzeUrl(rawUrl) {
-        if (isAnalyzing) return;
-        isAnalyzing = true;
+        if (activeInfoController) {
+            activeInfoController.abort();
+        }
+        const controller = new AbortController();
+        activeInfoController = controller;
         lastAnalyzedUrl = rawUrl;
         showError("");
 
@@ -265,6 +495,7 @@
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ url: rawUrl }),
+                signal: controller.signal,
             });
             const data = await res.json();
             if (!res.ok) {
@@ -275,18 +506,23 @@
             hasActiveSession = true;
             renderMediaPreview(data);
         } catch (err) {
+            if (err && err.name === "AbortError") {
+                return;
+            }
             if (!hasActiveSession) {
                 studioModal.classList.add("hidden");
             }
             showError(err.message || "Wystąpił błąd podczas analizy linku.");
             lastAnalyzedUrl = "";
         } finally {
-            isAnalyzing = false;
-            analyzeBtn.disabled = false;
-            analyzeSpinner.classList.add("hidden");
-            if (analyzePlayIcon) analyzePlayIcon.classList.remove("hidden");
-            analyzeBtnText.textContent = "Sprawdź link";
-            skeletonCard.classList.add("hidden");
+            if (activeInfoController === controller) {
+                activeInfoController = null;
+                analyzeBtn.disabled = false;
+                analyzeSpinner.classList.add("hidden");
+                if (analyzePlayIcon) analyzePlayIcon.classList.remove("hidden");
+                analyzeBtnText.textContent = "Sprawdź link";
+                skeletonCard.classList.add("hidden");
+            }
         }
     }
 
@@ -331,7 +567,7 @@
         mediaCard.classList.remove("hidden");
     }
 
-    // 4. Format Categories & Quality Variants
+    // 4. Format Categories & Quality Variants (delegated click handler)
     function pickDefaultVariantForCategory(cat) {
         const heights = (currentMedia && currentMedia.available_heights) || [];
         if (cat === "mp4") {
@@ -358,6 +594,13 @@
             pickDefaultVariantForCategory(cat);
             renderQualityOptions();
         });
+    });
+
+    qualityGrid.addEventListener("click", (e) => {
+        const btn = e.target.closest(".quality-tile");
+        if (!btn || !qualityGrid.contains(btn)) return;
+        selectedVariantKey = btn.dataset.variantKey;
+        renderQualityOptions();
     });
 
     function getSizeHintForHeight(height) {
@@ -543,13 +786,6 @@
             })
             .join("");
 
-        qualityGrid.querySelectorAll(".quality-tile").forEach((btn) => {
-            btn.addEventListener("click", () => {
-                selectedVariantKey = btn.dataset.variantKey;
-                renderQualityOptions();
-            });
-        });
-
         updateSummaryText(items);
     }
 
@@ -590,7 +826,7 @@
         el.addEventListener("change", () => updateSummaryText(buildQualityItems()));
     });
 
-    // 5. Starting Downloads & Real-Time SSE Progress
+    // 5. Starting Downloads & Real-Time SSE Progress (rAF-coalesced)
     startDownloadBtn.addEventListener("click", async () => {
         const targetUrl = (currentMedia && currentMedia.url) || urlInput.value.trim();
         if (!targetUrl) {
@@ -646,6 +882,7 @@
         card.id = `task-${state.task_id}`;
         card.className = "rounded-2xl p-4 bg-white/[0.03] border border-white/10 space-y-3 transition-all";
 
+        const nativeHost = canUseNativeHost();
         const badge = formatBadgeLabel(state.format_type, state.quality);
         card.innerHTML = `
             <div class="flex items-start justify-between gap-3">
@@ -692,7 +929,7 @@
                 <span data-role="fileinfo" class="text-xs font-mono-num text-amber-300 truncate max-w-full sm:max-w-[50%]"></span>
                 <div class="flex flex-wrap items-center gap-2 ml-auto">
                     ${
-                        isLocalHostClient
+                        nativeHost
                             ? `<button type="button" data-role="open-folder-btn"
                                 class="px-4 py-2 rounded-full bg-white/10 hover:bg-white hover:text-black text-xs font-bold text-white border border-white/20 transition flex items-center gap-1.5 cursor-pointer">
                                 <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -703,11 +940,11 @@
                             : ""
                     }
                     <a data-role="download-link" href="/api/file/${encodeURIComponent(state.task_id)}" download
-                        class="px-5 py-2 rounded-full bg-amber-300 hover:bg-white text-xs font-extrabold text-black transition flex items-center gap-1.5">
+                        class="px-5 py-2 rounded-full bg-amber-300 hover:bg-white text-xs font-extrabold text-black transition flex items-center gap-1.5 cursor-pointer">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
                         </svg>
-                        <span>Pobierz na dysk</span>
+                        <span>${nativeHost ? "Zapisz jako..." : "Pobierz na dysk"}</span>
                     </a>
                 </div>
             </div>
@@ -718,8 +955,30 @@
             openBtn.addEventListener("click", () => openDownloadsFolder({ task_id: state.task_id }));
         }
 
+        const dlLink = card.querySelector('[data-role="download-link"]');
+        if (dlLink && nativeHost) {
+            dlLink.addEventListener("click", (e) => {
+                e.preventDefault();
+                saveFileAsDialog({ task_id: state.task_id });
+            });
+        }
+
         tasksList.prepend(card);
         card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function scheduleTaskCardUI(state) {
+        if (!state || !state.task_id) return;
+        latestTaskStates.set(state.task_id, state);
+        if (pendingTaskFrames.has(state.task_id)) return;
+        const rafId = requestAnimationFrame(() => {
+            pendingTaskFrames.delete(state.task_id);
+            const latest = latestTaskStates.get(state.task_id);
+            if (latest) {
+                updateTaskCardUI(latest);
+            }
+        });
+        pendingTaskFrames.set(state.task_id, rafId);
     }
 
     function updateTaskCardUI(state) {
@@ -760,8 +1019,12 @@
             telemetryEl.classList.add("hidden");
             actionsEl.classList.remove("hidden");
             fileInfoEl.textContent = `${state.filename || "Plik gotowy"} (${state.filesize_str || ""})`;
-            loadSavedFiles();
-            showToast(`Gotowe: ${state.filename || "plik zapisany"}`);
+
+            if (!completedTasksNotified.has(state.task_id)) {
+                completedTasksNotified.add(state.task_id);
+                loadSavedFiles();
+                showToast(`Gotowe: ${state.filename || "plik zapisany"}`);
+            }
 
             // On hosted cloud servers or LAN devices, automatically trigger browser file save
             if (!isLocalHostClient && !autoTriggeredTasks.has(state.task_id)) {
@@ -788,7 +1051,7 @@
         es.onmessage = (event) => {
             try {
                 const state = JSON.parse(event.data);
-                updateTaskCardUI(state);
+                scheduleTaskCardUI(state);
                 if (state.status === "completed" || state.status === "error") {
                     finished = true;
                     es.close();
@@ -815,7 +1078,7 @@
                     return;
                 }
                 const state = await res.json();
-                updateTaskCardUI(state);
+                scheduleTaskCardUI(state);
                 if (state.status === "completed" || state.status === "error") {
                     clearInterval(timer);
                 }
@@ -825,7 +1088,7 @@
         }, 1000);
     }
 
-    // 6. Local Downloads Folder Management
+    // 6. Local Downloads Folder Management & Delegated File Actions
     async function openDownloadsFolder(payload = {}) {
         try {
             const res = await fetch("/api/open-folder", {
@@ -844,13 +1107,60 @@
         }
     }
 
-    if (!isLocalHostClient) {
-        openFolderMainBtn.classList.add("hidden");
-    } else {
-        openFolderMainBtn.addEventListener("click", () => openDownloadsFolder({}));
+    async function saveFileAsDialog(payload = {}) {
+        try {
+            const res = await fetch("/api/save-as", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                showToast(err.detail || "Nie udało się zapisać kopii pliku.");
+                return;
+            }
+            const data = await res.json();
+            if (data.saved && data.path) {
+                showToast(`Zapisano plik: ${data.path}`);
+            }
+        } catch {
+            showToast("Plik znajduje się już w katalogu downloads/");
+        }
     }
 
+    if (!isLocalHostClient) {
+        openFolderMainBtn.classList.add("hidden");
+    }
+    openFolderMainBtn.addEventListener("click", () => openDownloadsFolder({}));
     refreshFilesBtn.addEventListener("click", () => loadSavedFiles());
+
+    savedFilesList.addEventListener("click", async (e) => {
+        const selectBtn = e.target.closest("[data-select-file]");
+        if (selectBtn && savedFilesList.contains(selectBtn)) {
+            openDownloadsFolder({ filename: selectBtn.dataset.selectFile });
+            return;
+        }
+
+        const saveLink = e.target.closest("[data-save-as]");
+        if (saveLink && savedFilesList.contains(saveLink) && canUseNativeHost()) {
+            e.preventDefault();
+            saveFileAsDialog({ filename: saveLink.dataset.saveAs });
+            return;
+        }
+
+        const delBtn = e.target.closest("[data-delete-file]");
+        if (delBtn && savedFilesList.contains(delBtn)) {
+            const fname = delBtn.dataset.deleteFile;
+            if (!fname) return;
+            const res = await fetch(`/api/downloads/${encodeURIComponent(fname)}`, {
+                method: "DELETE",
+            });
+            if (res.ok) {
+                showToast("Usunięto plik");
+                loadSavedFiles();
+            }
+        }
+    });
 
     async function loadSavedFiles() {
         try {
@@ -858,6 +1168,7 @@
             if (!res.ok) return;
             const data = await res.json();
             const files = data.files || [];
+            const nativeHost = canUseNativeHost();
 
             filesCountBadge.textContent = String(files.length);
 
@@ -896,7 +1207,7 @@
 
                             <div class="flex items-center gap-2 shrink-0 self-end sm:self-center">
                                 ${
-                                    isLocalHostClient
+                                    nativeHost
                                         ? `<button type="button" data-select-file="${escapeHtml(f.filename)}" title="Pokaż w Eksploratorze"
                                             class="p-2 rounded-full bg-white/[0.06] hover:bg-white/15 border border-white/15 text-white transition cursor-pointer">
                                             <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -905,12 +1216,12 @@
                                            </button>`
                                         : ""
                                 }
-                                <a href="/api/downloads/file/${encodedName}" download
-                                    class="px-4 py-1.5 rounded-full bg-amber-300 hover:bg-white text-xs font-extrabold text-black transition flex items-center gap-1.5">
+                                <a href="/api/downloads/file/${encodedName}" download data-save-as="${escapeHtml(f.filename)}"
+                                    class="px-4 py-1.5 rounded-full bg-amber-300 hover:bg-white text-xs font-extrabold text-black transition flex items-center gap-1.5 cursor-pointer">
                                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
                                     </svg>
-                                    <span>Pobierz na dysk</span>
+                                    <span>${nativeHost ? "Zapisz jako..." : "Pobierz na dysk"}</span>
                                 </a>
                                 <button type="button" data-delete-file="${escapeHtml(f.filename)}" title="Usuń plik z dysku"
                                     class="p-2 rounded-full bg-white/[0.06] hover:bg-red-950/80 border border-white/15 hover:border-red-500/40 text-neutral-300 hover:text-red-300 transition cursor-pointer">
@@ -923,26 +1234,6 @@
                     `;
                 })
                 .join("");
-
-            savedFilesList.querySelectorAll("[data-select-file]").forEach((btn) => {
-                btn.addEventListener("click", () => {
-                    openDownloadsFolder({ filename: btn.dataset.selectFile });
-                });
-            });
-
-            savedFilesList.querySelectorAll("[data-delete-file]").forEach((btn) => {
-                btn.addEventListener("click", async () => {
-                    const fname = btn.dataset.deleteFile;
-                    if (!fname) return;
-                    const res = await fetch(`/api/downloads/${encodeURIComponent(fname)}`, {
-                        method: "DELETE",
-                    });
-                    if (res.ok) {
-                        showToast("Usunięto plik");
-                        loadSavedFiles();
-                    }
-                });
-            });
         } catch {
             // Ignore initial load error
         }
@@ -978,7 +1269,9 @@
         });
     });
 
-    // Initialize
-    checkHealth();
-    loadSavedFiles();
+    // Initialize sequentially so adaptive mode flags are ready before file list renders
+    (async () => {
+        await checkHealth();
+        loadSavedFiles();
+    })();
 })();

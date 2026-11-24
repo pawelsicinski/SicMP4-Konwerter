@@ -24,7 +24,7 @@ RUN pip install --upgrade pip \
 COPY app ./app
 
 # Create writable directories (compatible with both root and non-root cloud containers)
-RUN mkdir -p /app/downloads /app/downloads/.tmp /app/bin \
+RUN mkdir -p /app/downloads /app/downloads/.tmp /app/downloads/.cookies /app/bin \
     && chmod -R 777 /app/downloads /app/bin
 
 EXPOSE 8000
@@ -33,4 +33,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${PORT:-8000}/api/health" || exit 1
 
 # Single worker ensures in-memory task progress (SSE) stays consistent across requests
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --proxy-headers --forwarded-allow-ips='*' --timeout-keep-alive 65"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --no-access-log --proxy-headers --forwarded-allow-ips='*' --timeout-keep-alive 65"]

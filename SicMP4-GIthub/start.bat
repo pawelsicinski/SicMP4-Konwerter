@@ -11,6 +11,7 @@ echo   Katalog: %~dp0
 echo ============================================================
 echo.
 
+REM Zwolnij port 8000, jesli w tle dziala inna instancja serwera
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000 " ^| findstr "LISTENING"') do (
     taskkill /F /T /PID %%a >nul 2>&1
 )
