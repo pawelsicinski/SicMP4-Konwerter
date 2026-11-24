@@ -1,37 +1,39 @@
-# SicMP4 – Video & Audio Downloader / Converter
+# SicMP4 – Docker Edition (Video & Audio Downloader)
 
-Aplikacja webowa (FastAPI + `yt-dlp` + `FFmpeg`) w oprawie **Solar Eclipse Edition**, umożliwiająca pobieranie oraz konwersję wideo i audio z ponad 1700+ serwisów w przeglądarce – gotowa zarówno do hostingu w chmurze (Docker / Render / Railway / VPS), jak i do działania lokalnego.
-
----
-
-## Najważniejsze możliwości
-
-- **Obsługiwane Platformy (1700+ serwisów)** – YouTube, TikTok, Instagram (Reels & Stories), Facebook, X (Twitter), Reddit, Pinterest, Twitch (VOD & Klipy), CDA.pl, Vimeo, Dailymotion, Rumble, Bitchute, SoundCloud, Bandcamp, Mixcloud oraz odtwarzacze HTML5.
-- **Formaty Wideo** – MP4 (H.264 / AAC z optymalizacją `+faststart` dla dużych plików) od 480p i 720p do 1080p, 2K i 4K Ultra HD oraz bezstratne MKV / WebM (VP9 / AV1).
-- **Formaty Audio** – MP3 (do 320 kbps z automatyczną okładką i tagami ID3), M4A / AAC, WAV oraz FLAC.
-- **Funkcje Dodatkowe** – wycinki czasowe (`Od` – `Do`), napisy (`.srt`, osadzone w kontenerze lub wtopione na stałe w obraz) oraz pobieranie całych playlist (pakowanych automatycznie do `.zip`).
-- **Tryb chmurowy** – automatyczne pobieranie gotowego pliku na urządzenie użytkownika oraz cykliczne czyszczenie starych plików tymczasowych na serwerze (`AUTO_CLEANUP_HOURS=2`).
+Aplikacja webowa (FastAPI + `yt-dlp` + `FFmpeg` + `Node.js`) przygotowana do bezpośredniego uruchomienia w środowisku **Docker** (zarówno na **Render.com**, **Railway**, **Koyeb**, **Fly.io**, jak i na własnym serwerze VPS lub Docker Desktop).
 
 ---
 
-## Jak wrzucić ten folder na GitHub i zahostować
+## Uruchomienie na Render.com (Runtime: Docker)
 
-Cała zawartość tego folderu (`SicMP4-GIthub`) jest oczyszczona z lokalnych środowisk `venv` i plików tymczasowych – możesz wrzucić ją bezpośrednio do nowego repozytorium na GitHubie.
-
-### Krok 1: Wrzucenie na GitHub
-- **Przez stronę GitHub.com**: Utwórz nowe repozytorium -> kliknij *uploading an existing file* -> zaznacz **wszystkie pliki i foldery wewnątrz `SicMP4-GIthub`** i przeciągnij je do okna przeglądarki -> kliknij *Commit changes*.
-- **Lub przez Git / GitHub Desktop**: Wskaż folder `SicMP4-GIthub` jako katalog repozytorium i opublikuj na swoim koncie GitHub.
-
-### Krok 2: Uruchomienie hostingu (wybierz dowolną platformę)
-- **Render.com**: Kliknij *New +* -> *Web Service* (lub *Blueprint*) -> wybierz swoje repozytorium z GitHuba. Render automatycznie wykryje `Dockerfile` oraz `render.yaml`, zainstaluje FFmpeg + Node.js + Pythona i uruchomi aplikację pod publicznym adresem `https://...`.
-- **Railway.app**: Kliknij *New Project* -> *Deploy from GitHub repo* -> wybierz repozytorium. Plik `railway.json` oraz `Dockerfile` skonfigurują kontener automatycznie.
-- **Własny VPS z Dockerem**:
-  ```bash
-  docker build -t sicmp4 .
-  docker run -d -p 8000:8000 --restart unless-stopped --name sicmp4 sicmp4
-  ```
+1. Wrzuć **zawartość folderu `SicMP4-GIthub`** bezpośrednio do głównego katalogu swojego repozytorium na GitHubie (tak, aby plik `Dockerfile` leżał na najwyższym poziomie repozytorium).
+2. W panelu **Render.com** utwórz nowy **Web Service** połączony z repozytorium:
+   - **Language / Runtime**: `Docker`
+   - **Root Directory**: zostaw puste *(jeśli wrzuciłeś samą zawartość folderu)* albo wpisz `SicMP4-GIthub` *(jeśli wrzuciłeś cały folder jako podkatalog)*
+   - **Dockerfile Path**: `./Dockerfile` (domyślne)
+3. Kliknij **Deploy Web Service**. Obraz automatycznie zainstaluje Pythona 3.12, FFmpeg, Node.js oraz `yt-dlp[default]` i wystartuje na porcie przydzielonym przez zmienną środowiskową `PORT`.
 
 ---
 
-## Uruchomienie lokalne (Windows)
-Kliknij dwukrotnie `start.bat` (wymagany zainstalowany Python oraz `FFmpeg` w systemie).
+## Uruchomienie lokalne lub na VPS przez Docker
+
+### Opcja A: Docker Compose
+```bash
+docker compose up -d --build
+```
+Aplikacja będzie dostępna pod adresem `http://localhost:8000`.
+
+### Opcja B: Czysty Docker CLI
+```bash
+docker build -t sicmp4 .
+docker run -d -p 8000:8000 --name sicmp4 sicmp4
+```
+
+---
+
+## Zmienne środowiskowe (opcjonalne)
+
+| Zmienna | Domyślnie | Opis |
+| :--- | :--- | :--- |
+| `PORT` | `8000` | Port nasłuchiwania serwera HTTP (ustawiany automatycznie przez Render / Railway). |
+| `AUTO_CLEANUP_HOURS` | `1` | Czas (w godzinach), po którym stare pobrane pliki są automatycznie usuwane z dysku kontenera. |

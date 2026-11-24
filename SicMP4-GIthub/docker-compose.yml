@@ -1,0 +1,14 @@
+services:
+  sicmp4:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sicmp4
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - AUTO_CLEANUP_HOURS=2
+    volumes:
+      - ./downloads:/app/downloads
+    restart: unless-stopped
