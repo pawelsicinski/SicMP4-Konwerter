@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: sicmp4
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: AUTO_CLEANUP_HOURS
+        value: "2"
